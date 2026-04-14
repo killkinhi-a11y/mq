@@ -7,7 +7,7 @@ import { genresList, type Track } from "@/lib/musicApi";
 import TrackCard from "./TrackCard";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, X, SlidersHorizontal, Music } from "lucide-react";
+import { Search, X, SlidersHorizontal, Music, Play } from "lucide-react";
 
 export default function SearchView() {
   const { searchQuery, setSearchQuery, selectedGenre, setSelectedGenre, animationsEnabled, playTrack } = useAppStore();
@@ -209,13 +209,15 @@ export default function SearchView() {
             }
           </p>
           {activeTracks.length > 0 && (
-            <button
+            <motion.button
+              whileTap={{ scale: 0.95 }}
               onClick={handlePlayAll}
-              className="text-sm font-medium"
-              style={{ color: "var(--mq-accent)" }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+              style={{ backgroundColor: "var(--mq-accent)", color: "var(--mq-text)" }}
             >
+              <Play className="w-3 h-3" style={{ marginLeft: 1 }} />
               Воспроизвести все
-            </button>
+            </motion.button>
           )}
         </div>
       )}

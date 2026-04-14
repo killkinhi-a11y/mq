@@ -279,10 +279,10 @@ export default function FullTrackView() {
           >
             {/* Circular audio visualization canvas - sized larger than album art */}
             <div className="absolute pointer-events-none" style={{
-              width: "calc(100% + 50px)",
-              height: "calc(100% + 50px)",
-              left: "-25px",
-              top: "-25px",
+              width: "calc(100% + 40px)",
+              height: "calc(100% + 40px)",
+              left: "-20px",
+              top: "-20px",
               opacity: isPlaying ? 0.75 : 0.15,
               transition: "opacity 0.4s",
             }}>
@@ -363,7 +363,7 @@ export default function FullTrackView() {
               className="flex-1 h-1.5 rounded-full cursor-pointer" style={{ backgroundColor: "var(--mq-border)" }}>
               <div className="h-full rounded-full" style={{ width: `${volume}%`, backgroundColor: "var(--mq-accent)" }} />
             </div>
-            <span className="text-[10px] w-8 text-right" style={{ color: "var(--mq-text-muted)" }}>{volume}%</span>
+            <span className="text-[10px] w-8 text-right" style={{ color: "var(--mq-text-muted)" }}>{Math.round(volume)}%</span>
           </div>
 
           {/* Like / Dislike / Similar buttons */}

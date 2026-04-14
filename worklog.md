@@ -1,36 +1,78 @@
+# MQ Player — Bug Fixes & Improvements Worklog
+
+## Summary
+Applied 7 fixes across 7 files to resolve chat persistence issues, volume display bugs, missing UI elements, button styling, mobile visualization sizing, phone notification controls, and static greeting text.
+
 ---
-Task ID: 1
-Agent: Main Agent
-Task: Fix 6 MQ Player issues — messenger input, volume slider, mobile visualization, friends system, username uniqueness, chat persistence
 
-Work Log:
-- Fixed MessageBubble.tsx: Changed `<p>` tag wrapping `{renderContent()}` to `<div>` to fix React #482 error (invalid nesting — `<p>` containing `<img>` block elements)
-- Fixed SettingsView.tsx: Added visual fill indicator to volume slider (previously `appearance-none` + `accentColor` showed no progress bar)
-- Fixed PlayerBar.tsx: Reduced visualization canvas height from 40px to 24px on mobile
-- Fixed FullTrackView.tsx: Wrapped visualization canvas in a div to prevent overflow, reduced mobile album art size (w-56 h-56 instead of w-64 h-64), reduced canvas overflow to 50px instead of 60px
-- Updated prisma/schema.prisma: Added `@unique` on `username` field, created new `Friend` model with status (pending/accepted/rejected), requester/addressee relations
-- Updated register/route.ts: Added username regex validation (alphanumeric, _, -, 2-20 chars), added username uniqueness check before email check
-- Created /api/friends/route.ts: GET lists friends + pending requests, POST sends friend request with auto-accept logic
-- Created /api/friends/[id]/route.ts: PUT accepts/rejects requests, DELETE removes friends
-- Rewrote MessengerView.tsx completely:
-  - Sidebar now shows only friends (fetched from /api/friends), not all users
-  - Added friend request badge and panel (accept/reject UI)
-  - New "Add Friend" dialog searches users and sends friend requests
-  - Messages are now persisted to server via POST /api/messages on send
-  - Messages are loaded from server via GET /api/messages when opening a conversation
-  - Fixed input visibility: proper flex-shrink-0, height calc(100dvh - 80px), paddingBottom for player bar
-  - All input/emoji/header sections have flex-shrink-0 to prevent being pushed off screen
-- Ran Prisma migration (reset DB due to drift), seeded demo user
-- Rebuilt and restarted server successfully
-- Verified all APIs work: register, login, username uniqueness, friend send/accept/list
+## FIX 1: loadMessages merge instead of replace
+**File**: `src/store/useAppStore.ts` (line 385)
+**Problem**: `loadMessages` did `set({ messages })` which wiped ALL messages when loading server messages for one contact, breaking chat persistence.
+**Fix**: Changed to merge incoming messages with existing ones, deduplicating by message ID:
+```typescript
+loadMessages: (incoming) => set((s) => {
+  const existingIds = new Set(s.messages.map(m => m.id));
+  const newMsgs = incoming.filter(m => !existingIds.has(m.id));
+  return { messages: [...s.messages, ...newMsgs] };
+}),
+```
 
-Stage Summary:
-- All 6 user issues resolved
-- React #482 error fixed (MessageBubble `<p>` → `<div>`)
-- Messenger input now always visible at bottom
-- Volume slider shows visual fill
-- Mobile visualization smaller and contained
-- Friends system fully implemented (request/accept/reject/list)
-- Username uniqueness enforced at DB + API level
-- Chat messages persisted to server (loaded on conversation open)
-- Build successful, server running on port 3000
+## FIX 2: Volume percentage display rounding
+**Files modified**:
+- `src/store/useAppStore.ts` (line 286): `setVolume` now rounds: `set({ volume: Math.round(volume) })`
+- `src/components/mq/SettingsView.tsx` (line 284): `{volume}%` → `{Math.round(volume)}%`
+- `src/components/mq/FullTrackView.tsx` (line 366): `{volume}%` → `{Math.round(volume)}%`
+- `src/components/mq/PlayerBar.tsx` (line 561): `{volume}%` → `{Math.round(volume)}%`
+**Problem**: Volume showed decimals like 30.0999299% due to click-position calculations.
+**Fix**: Store rounding in `setVolume` + display rounding as safety net.
+
+## FIX 3: Profile customization link in mobile Settings
+**File**: `src/components/mq/SettingsView.tsx`
+**Changes**:
+- Added `User` to lucide-react imports
+- Added `setView` to store destructuring
+- Added a styled "Настройки профиля" button between the Profile card and Themes section
+- Button navigates to the profile view via `setView("profile")`
+
+## FIX 4: "Play All" styled buttons
+**Files modified**:
+- `src/components/mq/MainView.tsx`: Added `Play` import; replaced 2 plain text buttons with `motion.button` styled with accent bg, Play icon
+- `src/components/mq/SearchView.tsx`: Added `Play` import; replaced plain text button with styled `motion.button`
+- `src/components/mq/HistoryView.tsx`: Replaced plain text button with styled `motion.button` (Play already imported)
+**Before**: Plain `<button className="text-sm">` with accent color text
+**After**: Styled `motion.button` with accent background, Play icon, rounded-lg, font-medium, scale tap animation
+
+## FIX 5: Audio visualization mobile sizing
+**Files modified**:
+- `src/components/mq/PlayerBar.tsx` (lines 566-570): Canvas height increased from 24 to 28px (minHeight also updated)
+- `src/components/mq/FullTrackView.tsx` (lines 281-285): Circular visualization overflow reduced from 50px to 40px (and offset from 25px to 20px) to prevent mobile overflow
+
+## FIX 6: MediaSession API for phone notification controls
+**File**: `src/components/mq/PlayerBar.tsx`
+**Added**: A `useEffect` after the volume effect that:
+- Sets `navigator.mediaSession.metadata` with track title, artist, album, and artwork
+- Registers action handlers for play, pause, previoustrack, nexttrack
+- Properly cleans up handlers on unmount
+- Depends on `currentTrack.id`, `currentTrack.title`, `currentTrack.artist`
+
+## FIX 7: Time-based greeting text
+**File**: `src/components/mq/MainView.tsx`
+**Changes**:
+- Added `Play` to lucide-react imports (also needed for Fix 4)
+- Added `getGreeting()` and `getGreetingSubtext()` helper functions
+  - 5:00-11:59 → "Доброе утро!" / "Начните день с любимой музыки"
+  - 12:00-16:59 → "Добрый день!" / "Откройте для себя музыку..."
+  - 17:00-21:59 → "Добрый вечер!" / "Расслабьтесь под любимые треки"
+  - 22:00-4:59 → "Доброй ночи!" / "Ночная музыка для уютного вечера"
+- Replaced static "Добро пожаловать!" heading and subtext with dynamic greeting functions
+
+---
+
+## Files Changed (7 total)
+1. `src/store/useAppStore.ts` — FIX 1, FIX 2
+2. `src/components/mq/SettingsView.tsx` — FIX 2, FIX 3
+3. `src/components/mq/FullTrackView.tsx` — FIX 2, FIX 5
+4. `src/components/mq/PlayerBar.tsx` — FIX 2, FIX 5, FIX 6
+5. `src/components/mq/MainView.tsx` — FIX 4, FIX 7
+6. `src/components/mq/SearchView.tsx` — FIX 4
+7. `src/components/mq/HistoryView.tsx` — FIX 4

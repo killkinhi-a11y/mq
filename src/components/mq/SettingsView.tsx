@@ -5,7 +5,7 @@ import { useAppStore } from "@/store/useAppStore";
 import { motion } from "framer-motion";
 import { themes } from "@/lib/themes";
 import {
-  Palette, Type, Sparkles, Minimize2, Volume2, RotateCcw, Check, Moon, Music, Shield, Zap
+  Palette, Type, Sparkles, Minimize2, Volume2, RotateCcw, Check, Moon, Music, Shield, Zap, User
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
@@ -13,7 +13,7 @@ export default function SettingsView() {
   const {
     currentTheme, setTheme, customAccent, setCustomAccent,
     animationsEnabled, setAnimationsEnabled, compactMode, setCompactMode,
-    fontSize, setFontSize, volume, setVolume, logout, username, animationsEnabled: anim,
+    fontSize, setFontSize, volume, setVolume, logout, username, animationsEnabled: anim, setView,
   } = useAppStore();
 
   const [accentInput, setAccentInput] = useState(customAccent || "");
@@ -73,6 +73,17 @@ export default function SettingsView() {
           </div>
         </div>
       </motion.div>
+
+      <motion.button
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.98 }}
+        onClick={() => setView("profile")}
+        className="w-full p-3 rounded-xl text-left text-sm font-medium flex items-center gap-3"
+        style={{ backgroundColor: "var(--mq-card)", border: "1px solid var(--mq-border)", color: "var(--mq-text)" }}
+      >
+        <User className="w-4 h-4" style={{ color: "var(--mq-accent)" }} />
+        Настройки профиля
+      </motion.button>
 
       {/* Themes */}
       <motion.div
@@ -281,7 +292,7 @@ export default function SettingsView() {
           <Volume2 className="w-5 h-5" style={{ color: "var(--mq-accent)" }} />
           <h2 className="font-semibold" style={{ color: "var(--mq-text)" }}>Громкость</h2>
           <span className="ml-auto text-sm font-mono" style={{ color: "var(--mq-accent)" }}>
-            {volume}%
+            {Math.round(volume)}%
           </span>
         </div>
         <p className="text-xs mb-3" style={{ color: "var(--mq-text-muted)" }}>Колёсико мыши для регулировки</p>

@@ -6,7 +6,23 @@ import { motion } from "framer-motion";
 import { type Track, getRecommendations } from "@/lib/musicApi";
 import TrackCard from "./TrackCard";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Heart, MessageCircle, Clock, ListMusic, Music, Sparkles, RefreshCw } from "lucide-react";
+import { Heart, MessageCircle, Clock, ListMusic, Music, Sparkles, RefreshCw, Play } from "lucide-react";
+
+function getGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 12) return "Доброе утро!";
+  if (hour >= 12 && hour < 17) return "Добрый день!";
+  if (hour >= 17 && hour < 22) return "Добрый вечер!";
+  return "Доброй ночи!";
+}
+
+function getGreetingSubtext(): string {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 12) return "Начните день с любимой музыки";
+  if (hour >= 12 && hour < 17) return "Откройте для себя музыку, которая поднимет настроение";
+  if (hour >= 17 && hour < 22) return "Расслабьтесь под любимые треки";
+  return "Ночная музыка для уютного вечера";
+}
 
 export default function MainView() {
   const {
@@ -191,10 +207,10 @@ export default function MainView() {
       >
         <div className="relative z-10">
           <h1 className="text-2xl lg:text-3xl font-bold mb-2" style={{ color: "var(--mq-text)" }}>
-            Добро пожаловать!
+            {getGreeting()}
           </h1>
           <p className="text-sm lg:text-base" style={{ color: "var(--mq-text-muted)" }}>
-            Откройте для себя музыку, которая поднимет настроение
+            {getGreetingSubtext()}
           </p>
         </div>
       </motion.div>
@@ -266,9 +282,15 @@ export default function MainView() {
           </div>
           <div className="flex items-center gap-2">
             {recommendations.length > 0 && (
-              <button onClick={handlePlayRecAll} className="text-sm" style={{ color: "var(--mq-accent)" }}>
+              <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={handlePlayRecAll}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+                style={{ backgroundColor: "var(--mq-accent)", color: "var(--mq-text)" }}
+              >
+                <Play className="w-3 h-3" style={{ marginLeft: 1 }} />
                 Воспроизвести все
-              </button>
+              </motion.button>
             )}
             <motion.button whileTap={{ scale: 0.9 }} onClick={loadRecommendations} disabled={isRecLoading}
               className="p-1.5 rounded-lg" style={{ color: "var(--mq-text-muted)", border: "1px solid var(--mq-border)" }}>
@@ -316,9 +338,15 @@ export default function MainView() {
             Популярные треки
           </h2>
           {trendingTracks.length > 0 && (
-            <button onClick={handlePlayAll} className="text-sm" style={{ color: "var(--mq-accent)" }}>
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={handlePlayAll}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+              style={{ backgroundColor: "var(--mq-accent)", color: "var(--mq-text)" }}
+            >
+              <Play className="w-3 h-3" style={{ marginLeft: 1 }} />
               Воспроизвести все
-            </button>
+            </motion.button>
           )}
         </div>
 

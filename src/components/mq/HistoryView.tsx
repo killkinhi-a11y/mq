@@ -68,9 +68,15 @@ export default function HistoryView() {
           <div className="flex items-center gap-2">
             {history.length > 0 && (
               <>
-                <button onClick={handlePlayAll} className="text-sm" style={{ color: "var(--mq-accent)" }}>
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handlePlayAll}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+                  style={{ backgroundColor: "var(--mq-accent)", color: "var(--mq-text)" }}
+                >
+                  <Play className="w-3 h-3" style={{ marginLeft: 1 }} />
                   Воспроизвести все
-                </button>
+                </motion.button>
                 <motion.button
                   whileTap={{ scale: 0.9 }}
                   onClick={clearHistory}

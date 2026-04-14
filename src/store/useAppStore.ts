@@ -283,7 +283,7 @@ export const useAppStore = create<AppState>()(
 
       togglePlay: () => set((s) => ({ isPlaying: !s.isPlaying })),
 
-      setVolume: (volume) => set({ volume }),
+      setVolume: (volume) => set({ volume: Math.round(volume) }),
 
       setProgress: (progress) => set({ progress }),
 
@@ -382,7 +382,11 @@ export const useAppStore = create<AppState>()(
 
       setSelectedContact: (contactId) => set({ selectedContactId: contactId, unreadCounts: { ...get().unreadCounts, [contactId]: 0 } }),
 
-      loadMessages: (messages) => set({ messages }),
+      loadMessages: (incoming) => set((s) => {
+        const existingIds = new Set(s.messages.map(m => m.id));
+        const newMsgs = incoming.filter(m => !existingIds.has(m.id));
+        return { messages: [...s.messages, ...newMsgs] };
+      }),
 
       clearUnread: (contactId) =>
         set((s) => ({ unreadCounts: { ...s.unreadCounts, [contactId]: 0 } })),
