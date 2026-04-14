@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect } from "react";
-import { useAppStore } from "@/store/useAppStore";
 
 export default function ErrorBoundary({
   error,
@@ -12,6 +11,12 @@ export default function ErrorBoundary({
 }) {
   useEffect(() => {
     console.error("MQ Player Error:", error);
+    // Auto-clear corrupted localStorage for store/hydration errors
+    const msg = error?.message || "";
+    if (msg.includes("is not defined") || msg.includes("is not a function") || msg.includes("Cannot read") || msg.includes("hydrat")) {
+      console.warn("Auto-clearing localStorage due to error:", msg);
+      try { localStorage.removeItem("mq-player-store"); } catch {}
+    }
   }, [error]);
 
   const handleReset = () => {

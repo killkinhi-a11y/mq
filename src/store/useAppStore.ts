@@ -1,6 +1,30 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, createJSONStorage } from "zustand/middleware";
 import { type Track, type Message as ChatMessage } from "@/lib/musicApi";
+
+// ── Storage versioning ──
+// Bump this number to force a fresh store for all users with old data.
+const STORE_VERSION = 3;
+const STORAGE_KEY = "mq-player-store";
+
+// Nuke stale data BEFORE Zustand tries to hydrate.
+// This runs at module-import time, so there is no React error boundary to catch failures.
+if (typeof window !== "undefined") {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const storedVersion = parsed?.version ?? 0;
+      if (storedVersion < STORE_VERSION) {
+        console.warn(`[MQ Store] version ${storedVersion} < ${STORE_VERSION} – clearing stale data`);
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    }
+  } catch {
+    console.warn("[MQ Store] corrupt localStorage – clearing");
+    try { localStorage.removeItem(STORAGE_KEY); } catch {}
+  }
+}
 
 export type ViewType = "auth" | "main" | "search" | "messenger" | "settings" | "profile" | "playlists" | "history";
 export type AuthStep = "login" | "register" | "confirm" | "confirmed";
@@ -501,8 +525,25 @@ export const useAppStore = create<AppState>()(
       reset: () => set(initialState),
     }),
     {
-      name: "mq-player-store",
+      name: STORAGE_KEY,
+      version: STORE_VERSION,
+      storage: createJSONStorage(() => {
+        // Extra safety: wrap getItem so any parse error results in null
+        if (typeof window === "undefined") return { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+        return {
+          getItem: (key: string) => {
+            try { return localStorage.getItem(key); } catch { return null; }
+          },
+          setItem: (key: string, val: string) => {
+            try { localStorage.setItem(key, val); } catch {}
+          },
+          removeItem: (key: string) => {
+            try { localStorage.removeItem(key); } catch {}
+          },
+        };
+      }),
       partialize: (state) => ({
+        _v: STORE_VERSION,
         currentTheme: state.currentTheme,
         customAccent: state.customAccent,
         animationsEnabled: state.animationsEnabled,
@@ -524,6 +565,51 @@ export const useAppStore = create<AppState>()(
         playlists: state.playlists,
         history: state.history,
       }),
+      merge: (persisted, current) => {
+        // If persisted is null/undefined (cleared by version check), use defaults
+        if (!persisted) return current;
+        const p = persisted as Record<string, unknown>;
+        const merged = { ...current };
+        // Only copy known state keys from persisted data
+        for (const key of Object.keys(initialState)) {
+          if (p[key] !== undefined) {
+            (merged as Record<string, unknown>)[key] = p[key];
+          }
+        }
+        return merged;
+      },
+      onRehydrateStorage: () => {
+        return (state, error) => {
+          if (error) {
+            console.error("[MQ Store] rehydration error – clearing localStorage:", error);
+            try { localStorage.removeItem(STORAGE_KEY); } catch {}
+            return;
+          }
+          if (!state) return;
+          // Validate every critical field – belt and suspenders
+          const s = state as Record<string, unknown>;
+          const fixes: Record<string, unknown> = {};
+          if (!Array.isArray(s.likedTrackIds)) fixes.likedTrackIds = [];
+          if (!Array.isArray(s.dislikedTrackIds)) fixes.dislikedTrackIds = [];
+          if (!Array.isArray(s.likedTracksData)) fixes.likedTracksData = [];
+          if (!Array.isArray(s.queue)) fixes.queue = [];
+          if (!Array.isArray(s.history)) fixes.history = [];
+          if (!Array.isArray(s.playlists)) fixes.playlists = [];
+          if (!Array.isArray(s.messages)) fixes.messages = [];
+          if (!Array.isArray(s.contacts)) fixes.contacts = [];
+          if (!Array.isArray(s.similarTracks)) fixes.similarTracks = [];
+          if (typeof s.currentTheme !== "string" || !s.currentTheme) fixes.currentTheme = "default";
+          if (typeof s.volume !== "number") fixes.volume = 70;
+          if (typeof s.fontSize !== "number") fixes.fontSize = 16;
+          if (typeof s.shuffle !== "boolean") fixes.shuffle = false;
+          if (typeof s.repeat !== "string") fixes.repeat = "off";
+          if (typeof s.queueIndex !== "number") fixes.queueIndex = 0;
+          if (Object.keys(fixes).length > 0) {
+            console.warn("[MQ Store] fixing missing fields:", Object.keys(fixes));
+            useAppStore.setState(fixes);
+          }
+        };
+      },
     }
   )
 );

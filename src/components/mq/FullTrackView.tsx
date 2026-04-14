@@ -232,8 +232,10 @@ export default function FullTrackView() {
   if (!currentTrack || !isFullTrackViewOpen) return null;
 
   const progressPct = duration > 0 ? (progress / duration) * 100 : 0;
-  const isLiked = currentTrack ? likedTrackIds.includes(currentTrack.id) : false;
-  const isDisliked = currentTrack ? dislikedTrackIds.includes(currentTrack.id) : false;
+  const safeLikedIds = Array.isArray(likedTrackIds) ? likedTrackIds : [];
+  const safeDislikedIds = Array.isArray(dislikedTrackIds) ? dislikedTrackIds : [];
+  const isLiked = currentTrack ? safeLikedIds.includes(currentTrack.id) : false;
+  const isDisliked = currentTrack ? safeDislikedIds.includes(currentTrack.id) : false;
 
   return (
     <AnimatePresence>

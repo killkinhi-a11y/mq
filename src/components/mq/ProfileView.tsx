@@ -12,6 +12,9 @@ export default function ProfileView() {
     username, email, avatar, likedTrackIds, dislikedTrackIds,
     messages, setView, logout,
   } = useAppStore();
+  const safeLiked = Array.isArray(likedTrackIds) ? likedTrackIds : [];
+  const safeDisliked = Array.isArray(dislikedTrackIds) ? dislikedTrackIds : [];
+  const safeMessages = Array.isArray(messages) ? messages : [];
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isEditingName, setIsEditingName] = useState(false);
@@ -190,7 +193,7 @@ export default function ProfileView() {
             <Heart className="w-5 h-5" style={{ color: "var(--mq-text)" }} />
           </div>
           <div>
-            <p className="text-lg font-bold" style={{ color: "var(--mq-text)" }}>{likedTrackIds.length}</p>
+            <p className="text-lg font-bold" style={{ color: "var(--mq-text)" }}>{safeLiked.length}</p>
             <p className="text-xs" style={{ color: "var(--mq-text-muted)" }}>Избранных</p>
           </div>
         </div>
@@ -202,7 +205,7 @@ export default function ProfileView() {
             <MessageCircle className="w-5 h-5" style={{ color: "var(--mq-text)" }} />
           </div>
           <div>
-            <p className="text-lg font-bold" style={{ color: "var(--mq-text)" }}>{messages.length}</p>
+            <p className="text-lg font-bold" style={{ color: "var(--mq-text)" }}>{safeMessages.length}</p>
             <p className="text-xs" style={{ color: "var(--mq-text-muted)" }}>Сообщений</p>
           </div>
         </div>
