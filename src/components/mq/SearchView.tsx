@@ -1,40 +1,122 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useAppStore } from "@/store/useAppStore";
 import { motion } from "framer-motion";
-import { mockTracks, mockPlaylists, genresList } from "@/lib/mockData";
+import { genresList, type Track } from "@/lib/musicApi";
 import TrackCard from "./TrackCard";
-import PlaylistCard from "./PlaylistCard";
 import { Input } from "@/components/ui/input";
-import { Search, X, SlidersHorizontal } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Search, X, SlidersHorizontal, Music } from "lucide-react";
 
 export default function SearchView() {
-  const { searchQuery, setSearchQuery, selectedGenre, setSelectedGenre, animationsEnabled } = useAppStore();
+  const { searchQuery, setSearchQuery, selectedGenre, setSelectedGenre, animationsEnabled, playTrack } = useAppStore();
   const [showFilters, setShowFilters] = useState(false);
+  const [searchResults, setSearchResults] = useState<Track[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
-  const filteredTracks = useMemo(() => {
-    return mockTracks.filter((t) => {
-      const matchesQuery =
-        !searchQuery ||
-        t.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        t.artist.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        t.album.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesGenre = !selectedGenre || t.genre === selectedGenre;
-      return matchesQuery && matchesGenre;
-    });
-  }, [searchQuery, selectedGenre]);
+  // Genre filter search
+  const [genreTracks, setGenreTracks] = useState<Track[]>([]);
+  const [isGenreLoading, setIsGenreLoading] = useState(false);
 
-  const filteredPlaylists = useMemo(() => {
-    return mockPlaylists.filter((p) => {
-      const matchesQuery =
-        !searchQuery ||
-        p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.description.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesGenre = !selectedGenre || p.genre === selectedGenre;
-      return matchesQuery && matchesGenre;
-    });
-  }, [searchQuery, selectedGenre]);
+  // Debounced search
+  useEffect(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      setHasSearched(false);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      setIsLoading(true);
+      setHasSearched(true);
+      try {
+        const res = await fetch(
+          `/api/music/search?q=${encodeURIComponent(searchQuery.trim())}`,
+          { signal: controller.signal }
+        );
+        if (!controller.signal.aborted) {
+          const data = await res.json();
+          setSearchResults(data.tracks || []);
+        }
+      } catch {
+        if (!controller.signal.aborted) {
+          setSearchResults([]);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsLoading(false);
+        }
+      }
+    }, 300);
+
+    return () => {
+      clearTimeout(timer);
+      if (abortRef.current) {
+        abortRef.current.abort();
+      }
+    };
+  }, [searchQuery]);
+
+  // Genre filter
+  useEffect(() => {
+    if (!selectedGenre) {
+      setGenreTracks([]);
+      return;
+    }
+
+    const controller = new AbortController();
+    const loadGenre = async () => {
+      setIsGenreLoading(true);
+      try {
+        const res = await fetch(
+          `/api/music/genre?genre=${encodeURIComponent(selectedGenre)}`,
+          { signal: controller.signal }
+        );
+        if (!controller.signal.aborted) {
+          const data = await res.json();
+          setGenreTracks(data.tracks || []);
+        }
+      } catch {
+        if (!controller.signal.aborted) {
+          setGenreTracks([]);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsGenreLoading(false);
+        }
+      }
+    };
+    loadGenre();
+
+    return () => controller.abort();
+  }, [selectedGenre]);
+
+  const handleClearSearch = useCallback(() => {
+    setSearchQuery("");
+    setSearchResults([]);
+    setHasSearched(false);
+  }, [setSearchQuery]);
+
+  const handlePlayAll = useCallback(() => {
+    const tracksToPlay = searchResults.length > 0 ? searchResults : genreTracks;
+    if (tracksToPlay.length > 0) {
+      playTrack(tracksToPlay[0], tracksToPlay);
+    }
+  }, [searchResults, genreTracks, playTrack]);
+
+  const activeTracks = selectedGenre ? genreTracks : searchResults;
+  const activeLoading = selectedGenre ? isGenreLoading : isLoading;
+  const activeHasSearched = selectedGenre || hasSearched;
 
   return (
     <div className="p-4 lg:p-6 pb-40 lg:pb-28 space-y-4">
@@ -59,7 +141,7 @@ export default function SearchView() {
           />
           {searchQuery && (
             <button
-              onClick={() => setSearchQuery("")}
+              onClick={handleClearSearch}
               className="absolute right-3 top-1/2 -translate-y-1/2"
               style={{ color: "var(--mq-text-muted)" }}
             >
@@ -118,40 +200,77 @@ export default function SearchView() {
       )}
 
       {/* Results info */}
-      <p className="text-sm" style={{ color: "var(--mq-text-muted)" }}>
-        {filteredTracks.length} треков найдено
-      </p>
+      {activeHasSearched && !activeLoading && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm" style={{ color: "var(--mq-text-muted)" }}>
+            {selectedGenre
+              ? `Жанр: ${selectedGenre} — ${activeTracks.length} треков`
+              : `${activeTracks.length} треков найдено`
+            }
+          </p>
+          {activeTracks.length > 0 && (
+            <button
+              onClick={handlePlayAll}
+              className="text-sm font-medium"
+              style={{ color: "var(--mq-accent)" }}
+            >
+              Воспроизвести все
+            </button>
+          )}
+        </div>
+      )}
 
-      {/* Playlists */}
-      {filteredPlaylists.length > 0 && (
+      {/* Loading skeletons */}
+      {activeLoading && (
+        <div className="space-y-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3 p-3 rounded-xl" style={{ backgroundColor: "var(--mq-card)" }}>
+              <Skeleton className="w-12 h-12 rounded-lg flex-shrink-0" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-3 w-1/2" />
+              </div>
+              <Skeleton className="h-4 w-16" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!activeLoading && activeHasSearched && activeTracks.length === 0 && (
+        <div className="text-center py-12">
+          <Search className="w-12 h-12 mx-auto mb-3" style={{ color: "var(--mq-text-muted)", opacity: 0.3 }} />
+          <p style={{ color: "var(--mq-text-muted)" }}>Ничего не найдено</p>
+          <p className="text-xs mt-1" style={{ color: "var(--mq-text-muted)", opacity: 0.7 }}>
+            Попробуйте изменить запрос или выбрать другой жанр
+          </p>
+        </div>
+      )}
+
+      {/* Track results */}
+      {!activeLoading && activeTracks.length > 0 && (
         <div>
           <h2 className="text-lg font-bold mb-3" style={{ color: "var(--mq-text)" }}>
-            Плейлисты
+            {selectedGenre ? `Жанр: ${selectedGenre}` : "Треки"}
           </h2>
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredPlaylists.map((pl, i) => (
-              <PlaylistCard key={pl.id} playlist={pl} index={i} />
+          <div className="space-y-2">
+            {activeTracks.map((track, i) => (
+              <TrackCard key={track.id} track={track} index={i} />
             ))}
           </div>
         </div>
       )}
 
-      {/* Tracks */}
-      {filteredTracks.length > 0 ? (
-        <div>
-          <h2 className="text-lg font-bold mb-3" style={{ color: "var(--mq-text)" }}>
-            Треки
-          </h2>
-          <div className="space-y-2">
-            {filteredTracks.map((track, i) => (
-              <TrackCard key={track.id} track={track} index={i} />
-            ))}
-          </div>
-        </div>
-      ) : (
+      {/* Default state: no search yet */}
+      {!activeHasSearched && !activeLoading && (
         <div className="text-center py-12">
-          <Search className="w-12 h-12 mx-auto mb-3" style={{ color: "var(--mq-text-muted)", opacity: 0.3 }} />
-          <p style={{ color: "var(--mq-text-muted)" }}>Ничего не найдено</p>
+          <Music className="w-12 h-12 mx-auto mb-3" style={{ color: "var(--mq-text-muted)", opacity: 0.3 }} />
+          <p className="text-sm" style={{ color: "var(--mq-text-muted)" }}>
+            Начните вводить для поиска музыки
+          </p>
+          <p className="text-xs mt-1" style={{ color: "var(--mq-text-muted)", opacity: 0.7 }}>
+            Или выберите жанр в фильтрах
+          </p>
         </div>
       )}
     </div>

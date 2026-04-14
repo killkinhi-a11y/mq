@@ -4,109 +4,155 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useAppStore } from "@/store/useAppStore";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Repeat, Repeat1, Shuffle
+  Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Repeat, Repeat1, Shuffle, Music
 } from "lucide-react";
-import { formatDuration } from "@/lib/mockData";
+import { formatDuration } from "@/lib/musicApi";
 
 export default function PlayerBar() {
   const {
     currentTrack, isPlaying, volume, progress, duration,
     shuffle, repeat, togglePlay, nextTrack, prevTrack,
     setVolume, setProgress, setDuration, toggleShuffle, toggleRepeat,
-    setView, currentView, animationsEnabled,
+    setView, animationsEnabled,
   } = useAppStore();
 
   const progressRef = useRef<HTMLDivElement>(null);
   const volumeRef = useRef<HTMLDivElement>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const oscillatorRef = useRef<OscillatorNode | null>(null);
-  const gainNodeRef = useRef<GainNode | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const nextTrackRef = useRef(nextTrack);
+  const setProgressRef = useRef(setProgress);
+  const setDurationRef = useRef(setDuration);
 
-  // Simple demo audio using Web Audio API
-  const playDemoTone = useCallback(() => {
-    if (oscillatorRef.current) {
-      try { oscillatorRef.current.stop(); } catch {}
-    }
-    if (!audioContextRef.current) {
-      audioContextRef.current = new AudioContext();
-    }
-    const ctx = audioContextRef.current;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.frequency.value = 220 + Math.random() * 440;
-    osc.type = "sine";
-    gain.gain.value = (volume / 100) * 0.15;
-    osc.start();
-    oscillatorRef.current = osc;
-    gainNodeRef.current = gain;
-  }, [volume]);
+  // Keep refs updated
+  useEffect(() => { nextTrackRef.current = nextTrack; }, [nextTrack]);
+  useEffect(() => { setProgressRef.current = setProgress; }, [setProgress]);
+  useEffect(() => { setDurationRef.current = setDuration; }, [setDuration]);
 
-  const stopDemoTone = useCallback(() => {
-    if (oscillatorRef.current) {
-      try { oscillatorRef.current.stop(); } catch {}
-      oscillatorRef.current = null;
-    }
+  // Initialize audio element
+  useEffect(() => {
+    audioRef.current = new Audio();
+    audioRef.current.preload = "auto";
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = "";
+        audioRef.current = null;
+      }
+    };
   }, []);
 
+  // Handle track change
   useEffect(() => {
-    if (isPlaying && currentTrack) {
-      playDemoTone();
-    } else {
-      stopDemoTone();
-    }
-    return () => stopDemoTone();
-  }, [isPlaying, currentTrack, playDemoTone, stopDemoTone]);
+    const audio = audioRef.current;
+    if (!audio || !currentTrack) return;
 
-  // Update volume on gain node
-  useEffect(() => {
-    if (gainNodeRef.current) {
-      gainNodeRef.current.gain.value = (volume / 100) * 0.15;
+    if (currentTrack.audioUrl) {
+      audio.src = currentTrack.audioUrl;
+      audio.load();
+      // Audio will be played by the isPlaying effect below
     }
+  }, [currentTrack]);
+
+  // Handle play/pause state
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !currentTrack?.audioUrl) return;
+
+    if (isPlaying) {
+      audio.play().catch(() => {
+        // Auto-play was prevented, just stop the state
+        useAppStore.getState().togglePlay();
+      });
+    } else {
+      audio.pause();
+    }
+  }, [isPlaying, currentTrack]);
+
+  // Handle volume changes
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.volume = volume / 100;
   }, [volume]);
 
-  // Simulate progress
+  // Audio event listeners for progress, duration, and ended
   useEffect(() => {
-    if (!isPlaying || !currentTrack || isDragging) return;
-    const interval = setInterval(() => {
-      const state = useAppStore.getState();
-      const newProgress = state.progress + 0.1;
-      if (newProgress >= state.duration) {
-        if (state.repeat === "one") {
-          setProgress(0);
-        } else {
-          nextTrack();
-        }
-      } else {
-        setProgress(newProgress);
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const handleTimeUpdate = () => {
+      if (!isDragging) {
+        setProgressRef.current(audio.currentTime);
       }
-    }, 100);
-    return () => clearInterval(interval);
-  }, [isPlaying, currentTrack, isDragging, nextTrack, setProgress]);
+    };
 
-  // Sync duration from track
+    const handleLoadedMetadata = () => {
+      if (audio.duration && isFinite(audio.duration)) {
+        setDurationRef.current(audio.duration);
+      }
+    };
+
+    const handleEnded = () => {
+      const state = useAppStore.getState();
+      if (state.repeat === "one") {
+        audio.currentTime = 0;
+        audio.play().catch(() => {});
+        setProgressRef.current(0);
+      } else {
+        nextTrackRef.current();
+      }
+    };
+
+    const handleCanPlay = () => {
+      if (audio.duration && isFinite(audio.duration)) {
+        setDurationRef.current(audio.duration);
+      }
+    };
+
+    audio.addEventListener("timeupdate", handleTimeUpdate);
+    audio.addEventListener("loadedmetadata", handleLoadedMetadata);
+    audio.addEventListener("ended", handleEnded);
+    audio.addEventListener("canplay", handleCanPlay);
+    audio.addEventListener("durationchange", handleLoadedMetadata);
+
+    return () => {
+      audio.removeEventListener("timeupdate", handleTimeUpdate);
+      audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
+      audio.removeEventListener("ended", handleEnded);
+      audio.removeEventListener("canplay", handleCanPlay);
+      audio.removeEventListener("durationchange", handleLoadedMetadata);
+    };
+  }, [isDragging]);
+
+  // Reset progress when track changes (only if track id changes)
+  const prevTrackIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (currentTrack) {
-      setDuration(currentTrack.duration);
+    if (currentTrack && currentTrack.id !== prevTrackIdRef.current) {
+      prevTrackIdRef.current = currentTrack.id;
+      setProgress(0);
     }
-  }, [currentTrack, setDuration]);
+  }, [currentTrack, setProgress]);
 
-  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!progressRef.current || !duration) return;
+    const audio = audioRef.current;
     const rect = progressRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const pct = Math.max(0, Math.min(1, x / rect.width));
-    setProgress(pct * duration);
-  };
+    const newTime = pct * duration;
+    setProgress(newTime);
+    if (audio) {
+      audio.currentTime = newTime;
+    }
+  }, [duration, setProgress]);
 
-  const handleVolumeClick = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleVolumeClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!volumeRef.current) return;
     const rect = volumeRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     setVolume(Math.max(0, Math.min(100, (x / rect.width) * 100)));
-  };
+  }, [setVolume]);
 
   if (!currentTrack) return null;
 
@@ -157,11 +203,20 @@ export default function PlayerBar() {
           className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
           onClick={() => setView("main")}
         >
-          <img
-            src={currentTrack.cover}
-            alt={currentTrack.album}
-            className="w-10 h-10 lg:w-12 lg:h-12 rounded-lg object-cover flex-shrink-0"
-          />
+          {currentTrack.cover ? (
+            <img
+              src={currentTrack.cover}
+              alt={currentTrack.album}
+              className="w-10 h-10 lg:w-12 lg:h-12 rounded-lg object-cover flex-shrink-0"
+            />
+          ) : (
+            <div
+              className="w-10 h-10 lg:w-12 lg:h-12 rounded-lg flex-shrink-0 flex items-center justify-center"
+              style={{ backgroundColor: "var(--mq-accent)", opacity: 0.5 }}
+            >
+              <Music className="w-5 h-5" style={{ color: "var(--mq-text)" }} />
+            </div>
+          )}
           <div className="min-w-0">
             <p className="text-sm font-medium truncate" style={{ color: "var(--mq-text)" }}>
               {currentTrack.title}

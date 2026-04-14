@@ -1,10 +1,10 @@
 "use client";
 
-import { Track } from "@/lib/mockData";
+import { type Track } from "@/lib/musicApi";
 import { useAppStore } from "@/store/useAppStore";
 import { Play, Pause, Clock } from "lucide-react";
 import { motion } from "framer-motion";
-import { formatDuration } from "@/lib/mockData";
+import { formatDuration } from "@/lib/musicApi";
 
 interface TrackCardProps {
   track: Track;

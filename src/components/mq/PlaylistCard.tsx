@@ -2,8 +2,8 @@
 
 import { motion } from "framer-motion";
 import { useAppStore } from "@/store/useAppStore";
-import { mockTracks, type Track, formatDuration } from "@/lib/mockData";
-import { Play, Pause, Clock } from "lucide-react";
+import { type Track, formatDuration } from "@/lib/musicApi";
+import { Play, Clock } from "lucide-react";
 
 interface PlaylistCardProps {
   playlist: {
@@ -21,7 +21,9 @@ export default function PlaylistCard({ playlist, index = 0 }: PlaylistCardProps)
   const { playTrack, animationsEnabled } = useAppStore();
 
   const handlePlay = () => {
-    playTrack(playlist.tracks[0], [...playlist.tracks, ...mockTracks.filter(t => !playlist.tracks.find(pt => pt.id === t.id))]);
+    if (playlist.tracks.length > 0) {
+      playTrack(playlist.tracks[0], [...playlist.tracks]);
+    }
   };
 
   const motionProps = animationsEnabled

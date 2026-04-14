@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useAppStore } from "@/store/useAppStore";
 import { motion, AnimatePresence } from "framer-motion";
-import { mockContacts } from "@/lib/mockData";
+import { mockContacts } from "@/lib/musicApi";
 import MessageBubble from "./MessageBubble";
 import { Input } from "@/components/ui/input";
 import {

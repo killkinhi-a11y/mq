@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { mockTracks, type Track, type Message as ChatMessage, mockContacts } from "@/lib/mockData";
+import { type Track, type Message as ChatMessage, mockContacts } from "@/lib/musicApi";
 
 export type ViewType = "auth" | "main" | "search" | "sleep" | "messenger" | "settings";
 export type AuthStep = "login" | "register" | "confirm" | "confirmed";
@@ -45,6 +45,7 @@ interface AppState {
   // Search
   searchQuery: string;
   selectedGenre: string;
+  isLoading: boolean;
 
   // Actions
   setAuth: (userId: string, username: string, email: string) => void;
@@ -83,6 +84,7 @@ interface AppState {
   // Search actions
   setSearchQuery: (query: string) => void;
   setSelectedGenre: (genre: string) => void;
+  setIsLoading: (loading: boolean) => void;
 
   // Reset
   reset: () => void;
@@ -101,7 +103,7 @@ const initialState = {
   compactMode: false,
   fontSize: 16,
   currentTrack: null as Track | null,
-  queue: mockTracks,
+  queue: [] as Track[],
   queueIndex: 0,
   isPlaying: false,
   volume: 70,
@@ -117,6 +119,7 @@ const initialState = {
   selectedContactId: null as string | null,
   searchQuery: "",
   selectedGenre: "",
+  isLoading: false,
 };
 
 export const useAppStore = create<AppState>()(
@@ -261,6 +264,8 @@ export const useAppStore = create<AppState>()(
       setSearchQuery: (query) => set({ searchQuery: query }),
 
       setSelectedGenre: (genre) => set({ selectedGenre: genre }),
+
+      setIsLoading: (loading) => set({ isLoading: loading }),
 
       reset: () => set(initialState),
     }),
