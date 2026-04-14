@@ -8,7 +8,7 @@ import {
   Shuffle, Music, Loader2, Moon, Clock, X, PictureInPicture2, ListMusic
 } from "lucide-react";
 import { formatDuration } from "@/lib/musicApi";
-import { getAudioElement, initAudioEngine, getAnalyser, resumeAudioContext } from "@/lib/audioEngine";
+import { getAudioElement, initAudioEngine, getAnalyser, resumeAudioContext, getFrequencyData } from "@/lib/audioEngine";
 
 async function resolveSoundCloudStream(scTrackId: number): Promise<{ url: string; isPreview: boolean; duration: number; fullDuration: number } | null> {
   try {
@@ -133,7 +133,7 @@ export default function PlayerBar() {
 
       const bufferLength = analyser.frequencyBinCount;
       const dataArray = new Uint8Array(bufferLength);
-      analyser.getByteFrequencyData(dataArray);
+      getFrequencyData(dataArray);
 
       const dpr = window.devicePixelRatio || 1;
       const displayWidth = canvas.clientWidth;

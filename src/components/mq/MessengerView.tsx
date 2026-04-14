@@ -7,7 +7,7 @@ import MessageBubble from "./MessageBubble";
 import { Input } from "@/components/ui/input";
 import {
   Lock, Shield, Send, ArrowLeft, Search, ShieldCheck, Phone, Smile, Trash2,
-  Plus, Music2, X, Loader2
+  Plus, Music2, X, Loader2, Copy, Reply, MoreVertical
 } from "lucide-react";
 import { simulateEncrypt, getEncryptionStatus, generateMockFingerprint, simulateDecrypt } from "@/lib/crypto";
 
@@ -47,6 +47,7 @@ export default function MessengerView() {
   const [mentionSearch, setMentionSearch] = useState("");
   const [showMentions, setShowMentions] = useState(false);
   const [deleteMessageId, setDeleteMessageId] = useState<string | null>(null);
+  const [contextMenuMsgId, setContextMenuMsgId] = useState<{ id: string; x: number; y: number } | null>(null);
   const [showNewChatDialog, setShowNewChatDialog] = useState(false);
   const [newChatSearch, setNewChatSearch] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -175,6 +176,19 @@ export default function MessengerView() {
     }
   }, [messages, selectedContactId]);
 
+  // Close context menu on click anywhere
+  useEffect(() => {
+    const close = () => setContextMenuMsgId(null);
+    if (contextMenuMsgId) {
+      document.addEventListener("click", close);
+      document.addEventListener("touchstart", close);
+      return () => {
+        document.removeEventListener("click", close);
+        document.removeEventListener("touchstart", close);
+      };
+    }
+  }, [contextMenuMsgId]);
+
   // @mention detection
   const handleInputChange = (value: string) => {
     setInputText(value);
@@ -235,6 +249,31 @@ export default function MessengerView() {
       messages: useAppStore.getState().messages.filter((m) => m.id !== messageId),
     });
     setDeleteMessageId(null);
+    setContextMenuMsgId(null);
+  };
+
+  const handleCopyMessage = (msg: typeof contactMessages[0]) => {
+    try {
+      const decrypted = simulateDecrypt(msg.content);
+      navigator.clipboard.writeText(decrypted).catch(() => {});
+    } catch {
+      navigator.clipboard.writeText(msg.content).catch(() => {});
+    }
+    setContextMenuMsgId(null);
+  };
+
+  const handleReplyMessage = (msg: typeof contactMessages[0]) => {
+    let replyText = "";
+    try {
+      const decrypted = simulateDecrypt(msg.content);
+      replyText = decrypted.length > 40 ? decrypted.slice(0, 40) + "..." : decrypted;
+    } catch {
+      replyText = msg.content.slice(0, 40) + "...";
+    }
+    const senderName = msg.senderId === userId ? "Вы" : (selectedContact?.name || "User");
+    setInputText(`> ${senderName}: ${replyText}\n`);
+    setContextMenuMsgId(null);
+    inputRef.current?.focus();
   };
 
   const shareTrack = async () => {
@@ -499,20 +538,61 @@ export default function MessengerView() {
                         className="relative group/bubble"
                         onContextMenu={(e) => {
                           e.preventDefault();
-                          setDeleteMessageId(msg.id);
+                          e.stopPropagation();
+                          setContextMenuMsgId({ id: msg.id, x: e.clientX, y: e.clientY });
                         }}
                       >
                         <MessageBubble message={msg} currentUserId={userId || undefined} />
-                        {deleteMessageId === msg.id && (
-                          <motion.button
-                            initial={{ opacity: 0, scale: 0.8 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            onClick={() => handleDeleteMessage(msg.id)}
-                            className="absolute top-1 right-1 p-1 rounded-full z-10 cursor-pointer"
-                            style={{ backgroundColor: "rgba(224,49,49,0.9)" }}
+                        {/* Long-press / more button for mobile */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const rect = (e.target as HTMLElement).getBoundingClientRect();
+                            setContextMenuMsgId({ id: msg.id, x: rect.right - 160, y: rect.top - 120 });
+                          }}
+                          className="absolute top-1 right-1 p-1 rounded-full opacity-0 group-hover/bubble:opacity-100 transition-opacity z-10 sm:hidden"
+                          style={{ backgroundColor: "var(--mq-card)", border: "1px solid var(--mq-border)" }}
+                        >
+                          <MoreVertical className="w-3 h-3" style={{ color: "var(--mq-text-muted)" }} />
+                        </button>
+                        {/* Context menu dropdown */}
+                        {contextMenuMsgId && contextMenuMsgId.id === msg.id && (
+                          <div
+                            className="absolute top-1 right-1 z-20 rounded-xl py-1 shadow-2xl min-w-[160px]"
+                            style={{
+                              backgroundColor: "var(--mq-card)",
+                              border: "1px solid var(--mq-border)",
+                              boxShadow: "0 8px 30px rgba(0,0,0,0.4)",
+                            }}
+                            onClick={(e) => e.stopPropagation()}
                           >
-                            <Trash2 className="w-3 h-3" style={{ color: "white" }} />
-                          </motion.button>
+                            <button
+                              onClick={() => handleReplyMessage(msg)}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:opacity-80 transition-opacity text-left"
+                              style={{ color: "var(--mq-text)" }}
+                            >
+                              <Reply className="w-3.5 h-3.5" style={{ color: "var(--mq-text-muted)" }} />
+                              Ответить
+                            </button>
+                            <button
+                              onClick={() => handleCopyMessage(msg)}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:opacity-80 transition-opacity text-left"
+                              style={{ color: "var(--mq-text)" }}
+                            >
+                              <Copy className="w-3.5 h-3.5" style={{ color: "var(--mq-text-muted)" }} />
+                              Копировать
+                            </button>
+                            {msg.senderId === userId && (
+                              <button
+                                onClick={() => handleDeleteMessage(msg.id)}
+                                className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:opacity-80 transition-opacity text-left"
+                                style={{ color: "#ef4444" }}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                Удалить
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
                     ))}

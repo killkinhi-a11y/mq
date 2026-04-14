@@ -11,13 +11,14 @@ import { Heart, MessageCircle, Clock, ListMusic, Music, Sparkles, RefreshCw } fr
 export default function MainView() {
   const {
     animationsEnabled, playTrack, likedTrackIds, likedTracksData,
-    history, playlists, setView, contacts,
+    history, playlists, setView, contacts, messages, userId,
   } = useAppStore();
 
   const [trendingTracks, setTrendingTracks] = useState<Track[]>([]);
   const [recommendations, setRecommendations] = useState<Track[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRecLoading, setIsRecLoading] = useState(true);
+  const [allUsersCount, setAllUsersCount] = useState(0);
 
   // Build taste profile from liked tracks + history
   const tasteProfile = useMemo(() => {
@@ -122,6 +123,24 @@ export default function MainView() {
   const recentTracks = history.slice(0, 6);
   const hasTasteData = tasteProfile.topGenres.length > 0 || tasteProfile.topArtists.length > 0;
 
+  // Fetch total user count from API
+  useEffect(() => {
+    let cancelled = false;
+    const fetchCount = async () => {
+      try {
+        const res = await fetch('/api/users/search');
+        if (res.ok) {
+          const data = await res.json();
+          if (!cancelled) setAllUsersCount((data.users || []).length);
+        }
+      } catch {}
+    };
+    fetchCount();
+    return () => { cancelled = true; };
+  }, []);
+
+  const friendCount = allUsersCount;
+
   // Stat cards with click handlers
   const statCards = [
     {
@@ -139,7 +158,7 @@ export default function MainView() {
     {
       icon: MessageCircle,
       label: "Друзья",
-      value: `${contacts.length}`,
+      value: `${friendCount}`,
       onClick: () => {
         setView("messenger");
       },

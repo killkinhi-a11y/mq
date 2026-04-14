@@ -135,6 +135,23 @@ export const themes: Record<string, ThemeConfig> = {
     glowColor: "rgba(224,64,251,0.3)",
     className: "synthwave-theme",
   },
+  midnight: {
+    id: "midnight",
+    name: "Чёрная ночь",
+    background: "#000000",
+    card: "#0a0a0a",
+    cardHover: "#141414",
+    accent: "#ffffff",
+    text: "#ffffff",
+    textMuted: "#666666",
+    border: "#1a1a1a",
+    inputBg: "#0a0a0a",
+    playerBg: "#050505",
+    navBg: "#000000ee",
+    gradient: "radial-gradient(ellipse at 20% 50%, rgba(255,255,255,0.03) 0%, transparent 50%)",
+    glowColor: "rgba(255,255,255,0.15)",
+    className: "midnight-theme",
+  },
 };
 
 export function applyThemeToDOM(theme: ThemeConfig, customAccent?: string) {
@@ -155,7 +172,7 @@ export function applyThemeToDOM(theme: ThemeConfig, customAccent?: string) {
   root.style.setProperty("--mq-glow", theme.glowColor);
 
   // Remove all theme classes
-  const allThemeClasses = ["ocean-theme", "neon-theme", "sunset-theme", "aurora-theme", "cyberpunk-theme", "synthwave-theme"];
+  const allThemeClasses = ["ocean-theme", "neon-theme", "sunset-theme", "aurora-theme", "cyberpunk-theme", "synthwave-theme", "midnight-theme"];
   allThemeClasses.forEach(c => root.classList.remove(c));
   if (theme.className) {
     root.classList.add(theme.className);

@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { formatDuration, searchTracks, type Track } from "@/lib/musicApi";
 import TrackCard from "./TrackCard";
-import { getAnalyser, getAudioElement, resumeAudioContext } from "@/lib/audioEngine";
+import { getAnalyser, getAudioElement, resumeAudioContext, getFrequencyData } from "@/lib/audioEngine";
 
 export default function FullTrackView() {
   const {
@@ -17,7 +17,7 @@ export default function FullTrackView() {
     shuffle, repeat, togglePlay, nextTrack, prevTrack,
     setVolume, setProgress, setDuration, toggleShuffle, toggleRepeat,
     isFullTrackViewOpen, setFullTrackViewOpen, animationsEnabled,
-    toggleLike, toggleDislike, isTrackLiked, isTrackDisliked,
+    toggleLike, toggleDislike, likedTrackIds, dislikedTrackIds,
     similarTracks, setSimilarTracks, similarTracksLoading, setSimilarTracksLoading,
     playTrack, queue, showSimilarRequested, clearShowSimilarRequest,
   } = useAppStore();
@@ -132,7 +132,7 @@ export default function FullTrackView() {
 
       const bufferLength = analyser.frequencyBinCount;
       const dataArray = new Uint8Array(bufferLength);
-      analyser.getByteFrequencyData(dataArray);
+      getFrequencyData(dataArray);
 
       const dpr = window.devicePixelRatio || 1;
       const size = canvas.clientWidth;
@@ -232,8 +232,8 @@ export default function FullTrackView() {
   if (!currentTrack || !isFullTrackViewOpen) return null;
 
   const progressPct = duration > 0 ? (progress / duration) * 100 : 0;
-  const isLiked = currentTrack ? isTrackLiked(currentTrack.id) : false;
-  const isDisliked = currentTrack ? isTrackDisliked(currentTrack.id) : false;
+  const isLiked = currentTrack ? likedTrackIds.includes(currentTrack.id) : false;
+  const isDisliked = currentTrack ? dislikedTrackIds.includes(currentTrack.id) : false;
 
   return (
     <AnimatePresence>

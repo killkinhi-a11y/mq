@@ -20,11 +20,18 @@ function setCache(key: string, data: unknown): void {
 }
 
 const trendingQueries = [
-  "popular music 2025",
-  "trending hits",
-  "new music this week",
-  "top charts 2025",
-  "viral hits 2025",
+  "top hits 2025",
+  "billboard hot 100",
+  "most played songs 2025",
+  "viral music 2025",
+  "chart topping hits",
+  "best new music 2025",
+  "popular edm 2025",
+  "top hip hop 2025",
+  "trending pop songs",
+  "best rap 2025",
+  "hit songs playlist",
+  "summer hits 2025",
 ];
 
 export async function GET() {
@@ -33,11 +40,11 @@ export async function GET() {
   if (cached) return NextResponse.json(cached);
 
   try {
-    // Pick 2 random trending queries
-    const shuffled = trendingQueries.sort(() => Math.random() - 0.5).slice(0, 2);
+    // Pick 3 random trending queries
+    const shuffled = trendingQueries.sort(() => Math.random() - 0.5).slice(0, 3);
 
     const results = await Promise.allSettled(
-      shuffled.map((q) => searchSCTracks(q, 15))
+      shuffled.map((q) => searchSCTracks(q, 20))
     );
 
     const allTracks: ReturnType<typeof searchSCTracks> extends Promise<infer T> ? T : never = [];
@@ -47,6 +54,7 @@ export async function GET() {
       if (result.status !== "fulfilled") continue;
       for (const track of result.value) {
         if (seenIds.has(track.scTrackId)) continue;
+        if (!track.cover) continue; // Filter out tracks without artwork for better quality
         seenIds.add(track.scTrackId);
         allTracks.push(track);
       }

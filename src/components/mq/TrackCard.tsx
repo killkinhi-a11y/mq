@@ -16,10 +16,10 @@ interface TrackCardProps {
 
 export default function TrackCard({ track, index = 0, queue }: TrackCardProps) {
   const { currentTrack, isPlaying, playTrack, togglePlay, animationsEnabled,
-    toggleLike, toggleDislike, isTrackLiked, isTrackDisliked } = useAppStore();
+    toggleLike, toggleDislike, likedTrackIds, dislikedTrackIds } = useAppStore();
   const isActive = currentTrack?.id === track.id;
-  const isLiked = isTrackLiked(track.id);
-  const isDisliked = isTrackDisliked(track.id);
+  const isLiked = likedTrackIds.includes(track.id);
+  const isDisliked = dislikedTrackIds.includes(track.id);
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; show: boolean }>({ x: 0, y: 0, show: false });
 

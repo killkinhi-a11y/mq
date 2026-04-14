@@ -7,17 +7,20 @@ export async function GET(request: NextRequest) {
     const q = searchParams.get("q") || "";
     const excludeId = searchParams.get("excludeId") || "";
 
+    // Build where clause: no confirmed filter so all registered users are visible
+    const where: Record<string, unknown> = {};
+    if (excludeId) {
+      where.id = { not: excludeId };
+    }
+    if (q) {
+      where.OR = [
+        { username: { contains: q, mode: "insensitive" } },
+        { email: { contains: q, mode: "insensitive" } },
+      ];
+    }
+
     const users = await db.user.findMany({
-      where: {
-        confirmed: true,
-        ...(excludeId ? { id: { not: excludeId } } : {}),
-        ...(q ? {
-          OR: [
-            { username: { contains: q } },
-            { email: { contains: q } },
-          ],
-        } : {}),
-      },
+      where,
       select: {
         id: true,
         username: true,
