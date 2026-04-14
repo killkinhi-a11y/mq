@@ -8,6 +8,7 @@ import {
   Shuffle, Music, Loader2, Moon, Clock, X, PictureInPicture2
 } from "lucide-react";
 import { formatDuration } from "@/lib/musicApi";
+import { getAudioElement, initAudioEngine, getAnalyser, resumeAudioContext } from "@/lib/audioEngine";
 
 async function resolveSoundCloudStream(scTrackId: number): Promise<{ url: string; isPreview: boolean; duration: number; fullDuration: number } | null> {
   try {
@@ -34,10 +35,6 @@ export default function PlayerBar() {
 
   const progressRef = useRef<HTMLDivElement>(null);
   const volumeRef = useRef<HTMLDivElement>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animFrameRef = useRef<number>(0);
 
@@ -56,31 +53,14 @@ export default function PlayerBar() {
   useEffect(() => { setDurationRef.current = setDuration; }, [setDuration]);
   useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
 
-  // ── HTML5 Audio init ────────────────────────────────────
+  // ── Audio element + Web Audio init (shared engine) ──
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
   useEffect(() => {
-    const audio = new Audio();
-    audio.crossOrigin = "anonymous";
-    audio.preload = "auto";
+    const audio = getAudioElement();
     audioRef.current = audio;
 
-    // Setup Web Audio API for visualization
-    const setupAudioContext = () => {
-      if (audioCtxRef.current || sourceRef.current) return;
-      try {
-        const ctx = new AudioContext();
-        const source = ctx.createMediaElementSource(audio);
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 64;
-        analyser.smoothingTimeConstant = 0.75;
-        source.connect(analyser);
-        analyser.connect(ctx.destination);
-        analyserRef.current = analyser;
-        audioCtxRef.current = ctx;
-        sourceRef.current = source;
-      } catch {
-        // Web Audio API not available or already connected
-      }
-    };
+    initAudioEngine(audio);
 
     const onTimeUpdate = () => {
       if (!isDragging) setProgressRef.current(audio.currentTime);
@@ -106,7 +86,7 @@ export default function PlayerBar() {
     const onCanPlay = () => {
       setIsLoadingTrack(false);
       setPlayError(false);
-      setupAudioContext();
+      resumeAudioContext();
       if (isPlayingRef.current) {
         audio.play().catch(() => useAppStore.getState().togglePlay());
       }
@@ -114,7 +94,7 @@ export default function PlayerBar() {
     const onPlaying = () => {
       setIsLoadingTrack(false);
       setPlayError(false);
-      setupAudioContext();
+      resumeAudioContext();
     };
 
     audio.addEventListener("timeupdate", onTimeUpdate);
@@ -142,7 +122,7 @@ export default function PlayerBar() {
   // ── Audio Visualization ─────────────────────────────────
   useEffect(() => {
     const canvas = canvasRef.current;
-    const analyser = analyserRef.current;
+    const analyser = getAnalyser();
     if (!canvas || !analyser) return;
 
     const ctx = canvas.getContext("2d");
@@ -166,12 +146,11 @@ export default function PlayerBar() {
 
       ctx.clearRect(0, 0, displayWidth, displayHeight);
 
-      const barCount = 32;
+      const barCount = Math.min(48, bufferLength);
       const gap = 2;
       const barWidth = (displayWidth - gap * (barCount - 1)) / barCount;
       const accentColor = getComputedStyle(document.documentElement).getPropertyValue("--mq-accent").trim() || "#e03131";
 
-      // Parse accent to RGB for gradient
       let r = 224, g = 49, b = 49;
       if (accentColor.startsWith("#") && accentColor.length >= 7) {
         r = parseInt(accentColor.slice(1, 3), 16);
@@ -187,16 +166,15 @@ export default function PlayerBar() {
         const x = i * (barWidth + gap);
         const y = displayHeight - barHeight;
 
-        // Gradient from accent to lighter version
         const mix = i / barCount;
         const cr = Math.round(r + (255 - r) * mix * 0.3);
         const cg = Math.round(g + (255 - g) * mix * 0.3);
         const cb = Math.round(b + (255 - b) * mix * 0.3);
 
         ctx.fillStyle = `rgba(${cr},${cg},${cb},1)`;
-        ctx.globalAlpha = 0.4 + value * 0.6;
+        ctx.globalAlpha = 0.35 + value * 0.65;
         ctx.beginPath();
-        ctx.roundRect(x, y, barWidth, barHeight, 1);
+        ctx.roundRect(x, y, barWidth, barHeight, 1.5);
         ctx.fill();
       }
       ctx.globalAlpha = 1;
@@ -220,7 +198,7 @@ export default function PlayerBar() {
     const t = track || useAppStore.getState().currentTrack;
     if (!t) return;
 
-    const audio = audioRef.current;
+    const audio = audioRef.current || getAudioElement();
     if (!audio) return;
 
     setPlaybackMode("soundcloud");
@@ -250,7 +228,7 @@ export default function PlayerBar() {
       return;
     }
 
-    const audio = audioRef.current;
+    const audio = audioRef.current || getAudioElement();
     if (!audio) return;
 
     if (currentTrack.id !== prevTrackIdRef.current) {
@@ -288,10 +266,11 @@ export default function PlayerBar() {
 
   // ── Handle play/pause ───────────────────────────────────
   useEffect(() => {
-    const audio = audioRef.current;
+    const audio = audioRef.current || getAudioElement();
     if (!audio || !audio.src || audio.readyState < 2) return;
 
     if (isPlaying) {
+      resumeAudioContext();
       audio.play().catch(() => useAppStore.getState().togglePlay());
     } else {
       audio.pause();
@@ -300,7 +279,7 @@ export default function PlayerBar() {
 
   // ── Handle volume ───────────────────────────────────────
   useEffect(() => {
-    const audio = audioRef.current;
+    const audio = audioRef.current || getAudioElement();
     if (audio) audio.volume = volume / 100;
   }, [volume]);
 
@@ -320,8 +299,9 @@ export default function PlayerBar() {
     const newTime = pct * duration;
     setProgress(newTime);
 
-    if (audioRef.current) {
-      audioRef.current.currentTime = newTime;
+    const audio = audioRef.current || getAudioElement();
+    if (audio) {
+      audio.currentTime = newTime;
     }
   }, [duration, setProgress]);
 
@@ -550,7 +530,7 @@ export default function PlayerBar() {
       <canvas
         ref={canvasRef}
         className="w-full pointer-events-none"
-        style={{ height: 24, opacity: isPlaying ? 0.8 : 0, transition: "opacity 0.3s" }}
+        style={{ height: 32, opacity: isPlaying ? 0.85 : 0, transition: "opacity 0.3s" }}
       />
     </motion.div>
   );

@@ -2,24 +2,30 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useAppStore } from "@/store/useAppStore";
-import { Play, Pause, Music, X, Minimize2 } from "lucide-react";
+import { Play, Pause, Music, X, Minimize2, SkipBack, SkipForward, Volume2, VolumeX } from "lucide-react";
 import { formatDuration } from "@/lib/musicApi";
 import { motion, AnimatePresence } from "framer-motion";
+import { getAudioElement } from "@/lib/audioEngine";
 
 export default function PiPPlayer() {
   const {
     currentTrack, isPlaying, togglePlay, isPiPActive, setPiPActive,
-    progress, duration,
+    progress, duration, volume, setVolume, nextTrack, prevTrack,
   } = useAppStore();
 
   const [pos, setPos] = useState({ x: 16, y: 16 });
   const [minimized, setMinimized] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const dragOffset = useRef({ x: 0, y: 0 });
-  const isDragging = useRef(false);
+  const isDraggingRef = useRef(false);
 
   useEffect(() => {
     if (isPiPActive) {
-      setPos({ x: 16, y: 16 });
+      // Position in bottom-right area
+      setPos({
+        x: window.innerWidth - 350,
+        y: window.innerHeight - 200,
+      });
       setMinimized(false);
     }
   }, [isPiPActive]);
@@ -35,16 +41,17 @@ export default function PiPPlayer() {
   };
 
   const handleDragStart = useCallback((clientX: number, clientY: number) => {
-    isDragging.current = true;
+    isDraggingRef.current = true;
+    setIsDragging(true);
     dragOffset.current = {
       x: clientX - pos.x,
       y: clientY - pos.y,
     };
 
     const onMove = (cx: number, cy: number) => {
-      if (!isDragging.current) return;
-      const w = minimized ? 60 : 330;
-      const h = minimized ? 60 : 110;
+      if (!isDraggingRef.current) return;
+      const w = minimized ? 64 : 340;
+      const h = minimized ? 64 : 120;
       const newX = Math.max(0, Math.min(cx - dragOffset.current.x, window.innerWidth - w));
       const newY = Math.max(0, Math.min(cy - dragOffset.current.y, window.innerHeight - h));
       setPos({ x: newX, y: newY });
@@ -56,7 +63,8 @@ export default function PiPPlayer() {
       onMove(ev.touches[0].clientX, ev.touches[0].clientY);
     };
     const onEnd = () => {
-      isDragging.current = false;
+      isDraggingRef.current = false;
+      setIsDragging(false);
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onEnd);
       document.removeEventListener("touchmove", onTouchMove);
@@ -69,8 +77,17 @@ export default function PiPPlayer() {
     document.addEventListener("touchend", onEnd);
   }, [pos, minimized]);
 
-  const w = minimized ? 60 : 330;
-  const h = minimized ? 60 : 110;
+  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const newTime = pct * duration;
+    useAppStore.getState().setProgress(newTime);
+    const audio = getAudioElement();
+    if (audio) audio.currentTime = newTime;
+  };
+
+  const w = minimized ? 64 : 340;
+  const h = minimized ? 64 : 120;
 
   return (
     <AnimatePresence>
@@ -87,7 +104,7 @@ export default function PiPPlayer() {
           width: w,
           height: h,
           borderRadius: 16,
-          overflow: "hidden",
+          overflow: "visible",
           cursor: "default",
           userSelect: "none",
         }}
@@ -119,11 +136,11 @@ export default function PiPPlayer() {
           }}
         >
           {minimized ? (
-            <div style={{ width: 60, height: 60, position: "relative" }}>
+            <div style={{ width: 64, height: 64, position: "relative" }}>
               {currentTrack.cover ? (
-                <img src={currentTrack.cover} alt="" style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 16 }} />
+                <img src={currentTrack.cover} alt="" style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 16 }} />
               ) : (
-                <div style={{ width: 60, height: 60, borderRadius: 16, backgroundColor: "var(--mq-accent)", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0.6 }}>
+                <div style={{ width: 64, height: 64, borderRadius: 16, backgroundColor: "var(--mq-accent)", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0.6 }}>
                   <Music size={22} style={{ color: "var(--mq-text)" }} />
                 </div>
               )}
@@ -134,24 +151,28 @@ export default function PiPPlayer() {
                   ))}
                 </div>
               )}
-              <button onClick={(e) => { e.stopPropagation(); setPiPActive(false); }} style={{ position: "absolute", top: -4, right: -4, width: 18, height: 18, borderRadius: "50%", backgroundColor: "rgba(239,68,68,0.9)", border: "none", color: "white", fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, padding: 0 }}>
+              <button onClick={(e) => { e.stopPropagation(); setPiPActive(false); }} style={{ position: "absolute", top: -4, right: -4, width: 20, height: 20, borderRadius: "50%", backgroundColor: "rgba(239,68,68,0.9)", border: "none", color: "white", fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, padding: 0 }}>
                 <X size={10} />
               </button>
+              {/* Double click to expand */}
+              <button onDoubleClick={(e) => { e.stopPropagation(); setMinimized(false); }} onClick={(e) => { e.stopPropagation(); openFullView(); }}
+                style={{ position: "absolute", inset: 0, cursor: "pointer", background: "transparent", border: "none", padding: 0 }} />
             </div>
           ) : (
-            <div style={{ width: 330 }}>
+            <div style={{ width: 340 }}>
               {/* Drag handle */}
-              <div style={{ display: "flex", justifyContent: "center", padding: "6px 0 4px", cursor: "grab" }}>
-                <div style={{ width: 32, height: 4, borderRadius: 2, backgroundColor: "var(--mq-border)", opacity: 0.6 }} />
+              <div style={{ display: "flex", justifyContent: "center", padding: "6px 0 2px", cursor: "grab" }}>
+                <div style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: "var(--mq-border)", opacity: 0.6 }} />
               </div>
               {/* Content */}
-              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "2px 12px 6px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 12px 4px" }}>
+                {/* Album art - click opens full view */}
                 <div onClick={openFullView} style={{ cursor: "pointer", flexShrink: 0 }}>
                   {currentTrack.cover ? (
-                    <img src={currentTrack.cover} alt="" style={{ width: 48, height: 48, borderRadius: 10, objectFit: "cover" }} />
+                    <img src={currentTrack.cover} alt="" style={{ width: 52, height: 52, borderRadius: 10, objectFit: "cover" }} />
                   ) : (
-                    <div style={{ width: 48, height: 48, borderRadius: 10, backgroundColor: "var(--mq-accent)", opacity: 0.4, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <Music size={18} style={{ color: "var(--mq-text)" }} />
+                    <div style={{ width: 52, height: 52, borderRadius: 10, backgroundColor: "var(--mq-accent)", opacity: 0.4, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <Music size={20} style={{ color: "var(--mq-text)" }} />
                     </div>
                   )}
                 </div>
@@ -159,20 +180,29 @@ export default function PiPPlayer() {
                   <p style={{ fontSize: 13, fontWeight: 600, color: "var(--mq-text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", margin: 0, lineHeight: 1.3 }}>{currentTrack.title}</p>
                   <p style={{ fontSize: 11, color: "var(--mq-text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", margin: "2px 0 0", lineHeight: 1.2 }}>{currentTrack.artist}</p>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-                  <button onClick={(e) => { e.stopPropagation(); togglePlay(); }} style={{ width: 36, height: 36, borderRadius: "50%", border: "none", backgroundColor: "var(--mq-accent)", color: "var(--mq-text)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: isPlaying ? "0 0 12px var(--mq-glow)" : "none" }}>
-                    {isPlaying ? <Pause size={16} /> : <Play size={16} style={{ marginLeft: 2 }} />}
-                  </button>
-                  <button onClick={(e) => { e.stopPropagation(); setMinimized(true); }} style={{ width: 28, height: 28, borderRadius: "50%", border: "none", backgroundColor: "rgba(255,255,255,0.08)", color: "var(--mq-text-muted)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <Minimize2 size={12} />
-                  </button>
-                  <button onClick={(e) => { e.stopPropagation(); setPiPActive(false); }} style={{ width: 28, height: 28, borderRadius: "50%", border: "none", backgroundColor: "rgba(255,255,255,0.08)", color: "var(--mq-text-muted)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <X size={12} />
-                  </button>
-                </div>
               </div>
-              {/* Progress bar */}
-              <div style={{ height: 3, backgroundColor: "rgba(255,255,255,0.08)", position: "relative", margin: "0 12px 6px", borderRadius: 2 }}>
+              {/* Controls row */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "2px 12px 4px" }}>
+                <button onClick={(e) => { e.stopPropagation(); prevTrack(); }} style={{ width: 28, height: 28, borderRadius: "50%", border: "none", backgroundColor: "transparent", color: "var(--mq-text-muted)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <SkipBack size={14} />
+                </button>
+                <button onClick={(e) => { e.stopPropagation(); togglePlay(); }} style={{ width: 36, height: 36, borderRadius: "50%", border: "none", backgroundColor: "var(--mq-accent)", color: "var(--mq-text)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: isPlaying ? "0 0 12px var(--mq-glow)" : "none" }}>
+                  {isPlaying ? <Pause size={16} /> : <Play size={16} style={{ marginLeft: 2 }} />}
+                </button>
+                <button onClick={(e) => { e.stopPropagation(); nextTrack(); }} style={{ width: 28, height: 28, borderRadius: "50%", border: "none", backgroundColor: "transparent", color: "var(--mq-text-muted)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <SkipForward size={14} />
+                </button>
+                <div style={{ flex: 1 }} />
+                <button onClick={(e) => { e.stopPropagation(); setMinimized(true); }} style={{ width: 28, height: 28, borderRadius: "50%", border: "none", backgroundColor: "rgba(255,255,255,0.08)", color: "var(--mq-text-muted)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Minimize2 size={12} />
+                </button>
+                <button onClick={(e) => { e.stopPropagation(); setPiPActive(false); }} style={{ width: 28, height: 28, borderRadius: "50%", border: "none", backgroundColor: "rgba(255,255,255,0.08)", color: "var(--mq-text-muted)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <X size={12} />
+                </button>
+              </div>
+              {/* Progress bar - clickable */}
+              <div onClick={(e) => { e.stopPropagation(); handleSeek(e); }}
+                style={{ height: 4, backgroundColor: "rgba(255,255,255,0.08)", position: "relative", margin: "0 12px 4px", borderRadius: 2, cursor: "pointer" }}>
                 <div style={{ height: "100%", width: progressPct + "%", backgroundColor: "var(--mq-accent)", borderRadius: 2, transition: "width 0.3s linear" }} />
               </div>
               {/* Time and branding */}

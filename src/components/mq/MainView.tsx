@@ -6,12 +6,12 @@ import { motion } from "framer-motion";
 import { type Track, getRecommendations } from "@/lib/musicApi";
 import TrackCard from "./TrackCard";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Heart, TrendingUp, Clock, ListMusic, Music, Sparkles, RefreshCw } from "lucide-react";
+import { Heart, TrendingUp, Clock, ListMusic, Music, Sparkles, RefreshCw, Play } from "lucide-react";
 
 export default function MainView() {
   const {
-    animationsEnabled, playTrack, likedTrackIds,
-    history, playlists,
+    animationsEnabled, playTrack, likedTrackIds, likedTracksData,
+    history, playlists, setView,
   } = useAppStore();
 
   const [trendingTracks, setTrendingTracks] = useState<Track[]>([]);
@@ -23,39 +23,34 @@ export default function MainView() {
   const tasteProfile = useMemo(() => {
     const { likedTracksData, history, likedTrackIds } = useAppStore.getState();
 
-    // Collect genres and artists from liked tracks
     const genreCounts: Record<string, number> = {};
     const artistCounts: Record<string, number> = {};
 
     for (const track of likedTracksData) {
       if (track.genre) {
-        genreCounts[track.genre] = (genreCounts[track.genre] || 0) + 2; // liked = weight 2
+        genreCounts[track.genre] = (genreCounts[track.genre] || 0) + 2;
       }
       artistCounts[track.artist] = (artistCounts[track.artist] || 0) + 2;
     }
 
-    // Add history weight
     for (const entry of history.slice(0, 50)) {
       const t = entry.track;
       if (t.genre) {
-        genreCounts[t.genre] = (genreCounts[t.genre] || 0) + 1; // history = weight 1
+        genreCounts[t.genre] = (genreCounts[t.genre] || 0) + 1;
       }
       artistCounts[t.artist] = (artistCounts[t.artist] || 0) + 1;
     }
 
-    // Get top genres (max 3)
     const topGenres = Object.entries(genreCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 3)
       .map(([genre]) => genre);
 
-    // Get top artists (max 2)
     const topArtists = Object.entries(artistCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 2)
       .map(([artist]) => artist);
 
-    // Build exclude IDs
     const excludeIds = [...likedTrackIds, ...history.slice(0, 30).map(h => h.track.id)].join(",");
 
     return { topGenres, topArtists, excludeIds };
@@ -119,8 +114,53 @@ export default function MainView() {
     if (recommendations.length > 0) playTrack(recommendations[0], recommendations);
   }, [recommendations, playTrack]);
 
+  // Play liked tracks
+  const handlePlayLiked = useCallback(() => {
+    if (likedTracksData.length > 0) playTrack(likedTracksData[0], likedTracksData);
+  }, [likedTracksData, playTrack]);
+
   const recentTracks = history.slice(0, 6);
   const hasTasteData = tasteProfile.topGenres.length > 0 || tasteProfile.topArtists.length > 0;
+
+  // Stat cards with click handlers
+  const statCards = [
+    {
+      icon: Heart,
+      label: "Избранное",
+      value: `${likedTrackIds.length} треков`,
+      onClick: () => {
+        if (likedTracksData.length > 0) {
+          // If there are liked tracks, play them all
+          handlePlayLiked();
+        } else {
+          // Go to search to find music to like
+          setView("search");
+        }
+      },
+    },
+    {
+      icon: TrendingUp,
+      label: "Популярное",
+      value: "Сейчас",
+      onClick: () => {
+        if (trendingTracks.length > 0) {
+          handlePlayAll();
+        }
+      },
+    },
+    {
+      icon: Clock,
+      label: "История",
+      value: `${history.length} треков`,
+      onClick: () => setView("history"),
+    },
+    {
+      icon: ListMusic,
+      label: "Плейлисты",
+      value: `${playlists.length} шт.`,
+      onClick: () => setView("playlists"),
+    },
+  ];
 
   return (
     <div className="p-4 lg:p-6 pb-40 lg:pb-28 space-y-6">
@@ -141,29 +181,29 @@ export default function MainView() {
         </div>
       </motion.div>
 
-      {/* Quick stats */}
+      {/* Quick stats - CLICKABLE */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {[
-          { icon: Heart, label: "Избранное", value: `${likedTrackIds.length} треков` },
-          { icon: TrendingUp, label: "Популярное", value: "Сейчас" },
-          { icon: Clock, label: "История", value: `${history.length} треков` },
-          { icon: ListMusic, label: "Плейлисты", value: `${playlists.length} шт.` },
-        ].map((stat, i) => (
-          <motion.div key={stat.label}
+        {statCards.map((stat, i) => (
+          <motion.button
+            key={stat.label}
             initial={animationsEnabled ? { opacity: 0, y: 20 } : undefined}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.1 }}
-            className="rounded-xl p-4 flex items-center gap-3"
-            style={{ backgroundColor: "var(--mq-card)", border: "1px solid var(--mq-border)" }}>
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={stat.onClick}
+            className="rounded-xl p-4 flex items-center gap-3 text-left transition-all duration-200 cursor-pointer"
+            style={{ backgroundColor: "var(--mq-card)", border: "1px solid var(--mq-border)" }}
+          >
             <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
               style={{ backgroundColor: "var(--mq-accent)", opacity: 0.8 }}>
               <stat.icon className="w-5 h-5" style={{ color: "var(--mq-text)" }} />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-xs" style={{ color: "var(--mq-text-muted)" }}>{stat.label}</p>
-              <p className="text-sm font-semibold" style={{ color: "var(--mq-text)" }}>{stat.value}</p>
+              <p className="text-sm font-semibold truncate" style={{ color: "var(--mq-text)" }}>{stat.value}</p>
             </div>
-          </motion.div>
+          </motion.button>
         ))}
       </div>
 
@@ -177,6 +217,11 @@ export default function MainView() {
                 Недавно прослушанные
               </h2>
             </div>
+            <motion.button whileTap={{ scale: 0.95 }} onClick={() => setView("history")}
+              className="text-xs px-3 py-1 rounded-full"
+              style={{ backgroundColor: "var(--mq-card)", border: "1px solid var(--mq-border)", color: "var(--mq-text-muted)" }}>
+              Все
+            </motion.button>
           </div>
           <div className="space-y-2">
             {recentTracks.map((entry, i) => (

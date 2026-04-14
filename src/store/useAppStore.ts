@@ -61,6 +61,8 @@ interface AppState {
   // Messenger
   messages: ChatMessage[];
   selectedContactId: string | null;
+  unreadCounts: Record<string, number>;
+  contacts: { id: string; name: string; username: string; avatar: string; online: boolean; lastSeen: string }[];
 
   // Search
   searchQuery: string;
@@ -123,6 +125,9 @@ interface AppState {
   addMessage: (message: ChatMessage) => void;
   setSelectedContact: (contactId: string | null) => void;
   loadMessages: (messages: ChatMessage[]) => void;
+  clearUnread: (contactId: string) => void;
+  addContact: (contact: { id: string; name: string; username: string; avatar: string; online: boolean; lastSeen: string }) => void;
+  deleteMessagesForContact: (contactId: string) => void;
 
   // Search actions
   setSearchQuery: (query: string) => void;
@@ -190,6 +195,14 @@ const initialState = {
   sleepTimerEndTime: null as number | null,
   messages: [] as ChatMessage[],
   selectedContactId: null as string | null,
+  unreadCounts: {} as Record<string, number>,
+  contacts: [
+    { id: "c1", name: "Александр", username: "alex_s", avatar: "https://picsum.photos/seed/avatar1/100/100", online: true, lastSeen: "Сейчас" },
+    { id: "c2", name: "Мария", username: "masha_m", avatar: "https://picsum.photos/seed/avatar2/100/100", online: true, lastSeen: "Сейчас" },
+    { id: "c3", name: "Дмитрий", username: "dima_d", avatar: "https://picsum.photos/seed/avatar3/100/100", online: false, lastSeen: "2 часа назад" },
+    { id: "c4", name: "Елена", username: "elena_k", avatar: "https://picsum.photos/seed/avatar4/100/100", online: false, lastSeen: "Вчера" },
+    { id: "c5", name: "Максим", username: "max_v", avatar: "https://picsum.photos/seed/avatar5/100/100", online: true, lastSeen: "Сейчас" },
+  ] as { id: string; name: string; username: string; avatar: string; online: boolean; lastSeen: string }[],
   searchQuery: "",
   selectedGenre: "",
   isLoading: false,
@@ -345,9 +358,25 @@ export const useAppStore = create<AppState>()(
       addMessage: (message) =>
         set((s) => ({ messages: [...s.messages, message] })),
 
-      setSelectedContact: (contactId) => set({ selectedContactId: contactId }),
+      setSelectedContact: (contactId) => set({ selectedContactId: contactId, unreadCounts: { ...get().unreadCounts, [contactId]: 0 } }),
 
       loadMessages: (messages) => set({ messages }),
+
+      clearUnread: (contactId) =>
+        set((s) => ({ unreadCounts: { ...s.unreadCounts, [contactId]: 0 } })),
+
+      addContact: (contact) =>
+        set((s) => {
+          if (s.contacts.some((c) => c.id === contact.id)) return s;
+          return { contacts: [...s.contacts, contact] };
+        }),
+
+      deleteMessagesForContact: (contactId) =>
+        set((s) => ({
+          messages: s.messages.filter(
+            (m) => m.senderId !== contactId && m.receiverId !== contactId
+          ),
+        })),
 
       setSearchQuery: (query) => set({ searchQuery: query }),
 
@@ -486,6 +515,8 @@ export const useAppStore = create<AppState>()(
         email: state.email,
         avatar: state.avatar,
         messages: state.messages,
+        unreadCounts: state.unreadCounts,
+        contacts: state.contacts,
         currentView: state.currentView,
         likedTrackIds: state.likedTrackIds,
         dislikedTrackIds: state.dislikedTrackIds,

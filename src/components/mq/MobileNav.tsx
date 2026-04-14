@@ -8,7 +8,7 @@ import type { ViewType } from "@/store/useAppStore";
 const navItems: { id: ViewType; icon: typeof Home; label: string }[] = [
   { id: "main", icon: Home, label: "Главная" },
   { id: "search", icon: Search, label: "Поиск" },
-  { id: "playlists", icon: ListMusic, label: "Плейлисты" },
+  { id: "messenger", icon: MessageCircle, label: "Чаты" },
   { id: "history", icon: Clock, label: "История" },
   { id: "settings", icon: Settings, label: "Ещё" },
 ];
@@ -34,7 +34,7 @@ export default function MobileNav() {
               key={item.id}
               whileTap={{ scale: 0.9 }}
               onClick={() => setView(item.id)}
-              className="flex flex-col items-center gap-1 px-3 py-1 min-w-[48px] min-h-[44px]"
+              className="flex flex-col items-center gap-1 px-3 py-1 min-w-[48px] min-h-[44px] cursor-pointer"
               style={{ color: isActive ? "var(--mq-accent)" : "var(--mq-text-muted)" }}
             >
               <div className="relative">

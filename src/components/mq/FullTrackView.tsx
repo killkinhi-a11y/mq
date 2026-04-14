@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { formatDuration, searchTracks, type Track } from "@/lib/musicApi";
 import TrackCard from "./TrackCard";
+import { getAnalyser, getAudioElement, resumeAudioContext } from "@/lib/audioEngine";
 
 export default function FullTrackView() {
   const {
@@ -27,21 +28,6 @@ export default function FullTrackView() {
   const vizAnimRef = useRef<number>(0);
   const [isDragging, setIsDragging] = useState(false);
   const [showSimilar, setShowSimilar] = useState(false);
-
-  // Listen to audio from PlayerBar for progress updates
-  useEffect(() => {
-    const audio = document.querySelector("audio");
-    if (!audio) return;
-    const onTimeUpdate = () => {
-      if (!isDragging && audio.duration) setDuration(audio.duration);
-    };
-    audio.addEventListener("timeupdate", onTimeUpdate);
-    audio.addEventListener("loadedmetadata", onTimeUpdate);
-    return () => {
-      audio.removeEventListener("timeupdate", onTimeUpdate);
-      audio.removeEventListener("loadedmetadata", onTimeUpdate);
-    };
-  }, [isDragging, setDuration]);
 
   // Fetch similar tracks
   useEffect(() => {
@@ -72,6 +58,8 @@ export default function FullTrackView() {
     const x = clientX - rect.left;
     const pct = Math.max(0, Math.min(1, x / rect.width));
     setProgress(pct * duration);
+    const audio = getAudioElement();
+    if (audio) audio.currentTime = pct * duration;
   }, [duration, setProgress]);
 
   const handleProgressMouseDown = useCallback((e: React.MouseEvent) => {
@@ -117,7 +105,7 @@ export default function FullTrackView() {
     setVolume(Math.max(0, Math.min(100, volume + delta)));
   }, [volume, setVolume]);
 
-  // Circular audio visualization
+  // ── Circular audio visualization using shared analyser ──
   useEffect(() => {
     const canvas = vizCanvasRef.current;
     if (!canvas || !isFullTrackViewOpen) return;
@@ -125,31 +113,11 @@ export default function FullTrackView() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Find the audio element created by PlayerBar
-    const audio = document.querySelector("audio");
-    if (!audio) return;
-
-    let analyser: AnalyserNode | null = null;
-    let audioCtx: AudioContext | null = null;
-    let source: MediaElementAudioSourceNode | null = null;
-
-    const setupAnalyser = () => {
-      if (analyser) return;
-      try {
-        audioCtx = new AudioContext();
-        source = audioCtx.createMediaElementSource(audio);
-        analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 128;
-        analyser.smoothingTimeConstant = 0.8;
-        source.connect(analyser);
-        analyser.connect(audioCtx.destination);
-      } catch {
-        // Already connected or not available
-      }
-    };
-
-    setupAnalyser();
+    // Use shared analyser from audioEngine (created by PlayerBar)
+    const analyser = getAnalyser();
     if (!analyser) return;
+
+    resumeAudioContext();
 
     const draw = () => {
       vizAnimRef.current = requestAnimationFrame(draw);
@@ -170,14 +138,23 @@ export default function FullTrackView() {
 
       const centerX = size / 2;
       const centerY = size / 2;
-      const innerRadius = size * 0.28;
-      const barCount = 48;
+      const innerRadius = size * 0.32;
+      const maxBarHeight = size * 0.15;
+      const barCount = 64;
       const accentColor = getComputedStyle(document.documentElement).getPropertyValue("--mq-accent").trim() || "#e03131";
+
+      // Parse accent color
+      let r = 224, g = 49, b = 49;
+      if (accentColor.startsWith("#") && accentColor.length >= 7) {
+        r = parseInt(accentColor.slice(1, 3), 16);
+        g = parseInt(accentColor.slice(3, 5), 16);
+        b = parseInt(accentColor.slice(5, 7), 16);
+      }
 
       for (let i = 0; i < barCount; i++) {
         const dataIndex = Math.floor(i * bufferLength / barCount);
         const value = dataArray[dataIndex] / 255;
-        const barHeight = Math.max(2, value * size * 0.12);
+        const barHeight = Math.max(2, value * maxBarHeight);
 
         const angle = (i / barCount) * Math.PI * 2 - Math.PI / 2;
         const x1 = centerX + Math.cos(angle) * innerRadius;
@@ -185,15 +162,30 @@ export default function FullTrackView() {
         const x2 = centerX + Math.cos(angle) * (innerRadius + barHeight);
         const y2 = centerY + Math.sin(angle) * (innerRadius + barHeight);
 
-        ctx.strokeStyle = accentColor;
-        ctx.globalAlpha = 0.3 + value * 0.7;
-        ctx.lineWidth = Math.max(1.5, (size / barCount) * 0.4);
+        // Color gradient based on position
+        const mix = i / barCount;
+        const cr = Math.round(r + (255 - r) * mix * 0.3);
+        const cg = Math.round(g + (255 - g) * mix * 0.3);
+        const cb = Math.round(b + (255 - b) * mix * 0.3);
+
+        ctx.strokeStyle = `rgba(${cr},${cg},${cb},1)`;
+        ctx.globalAlpha = 0.25 + value * 0.75;
+        ctx.lineWidth = Math.max(2, (size / barCount) * 0.45);
         ctx.lineCap = "round";
         ctx.beginPath();
         ctx.moveTo(x1, y1);
         ctx.lineTo(x2, y2);
         ctx.stroke();
       }
+
+      // Inner glow ring
+      ctx.globalAlpha = 0.08;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, innerRadius - 2, 0, Math.PI * 2);
+      ctx.strokeStyle = accentColor;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
       ctx.globalAlpha = 1;
     };
 
@@ -219,7 +211,7 @@ export default function FullTrackView() {
         style={{ backgroundColor: "var(--mq-bg)" }}
       >
         {/* Blurred background */}
-        <div className="absolute inset-0 z-0">
+        <div className="absolute inset-0 z-0" style={{ pointerEvents: "none" }}>
           {currentTrack.cover && (
             <img src={currentTrack.cover} alt="" className="w-full h-full object-cover blur-3xl opacity-20 scale-110" />
           )}
@@ -242,20 +234,27 @@ export default function FullTrackView() {
 
         {/* Content */}
         <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-6 max-w-lg mx-auto w-full">
-          {/* Album art */}
+          {/* Album art with circular visualization */}
           <motion.div
             initial={animationsEnabled ? { scale: 0.8, opacity: 0 } : undefined}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ type: "spring", stiffness: 200 }}
             className="relative mb-8"
           >
-            {/* Circular audio visualization */}
+            {/* Circular audio visualization canvas - sized larger than album art */}
             <canvas
               ref={vizCanvasRef}
-              className="absolute inset-0 w-full h-full pointer-events-none"
-              style={{ opacity: isPlaying ? 0.7 : 0, transition: "opacity 0.3s" }}
+              className="absolute pointer-events-none"
+              style={{
+                width: "calc(100% + 60px)",
+                height: "calc(100% + 60px)",
+                left: "-30px",
+                top: "-30px",
+                opacity: isPlaying ? 0.75 : 0,
+                transition: "opacity 0.4s",
+              }}
             />
-            <div className="w-64 h-64 sm:w-72 sm:h-72 lg:w-80 lg:h-80 rounded-2xl overflow-hidden shadow-2xl"
+            <div className="w-64 h-64 sm:w-72 sm:h-72 lg:w-80 lg:h-80 rounded-2xl overflow-hidden shadow-2xl relative z-10"
               style={{ boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
               <img src={currentTrack.cover} alt={currentTrack.album} className="w-full h-full object-cover" />
             </div>

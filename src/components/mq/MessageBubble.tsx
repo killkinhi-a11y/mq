@@ -3,6 +3,7 @@
 import { useAppStore } from "@/store/useAppStore";
 import { motion } from "framer-motion";
 import { Lock } from "lucide-react";
+import { simulateDecrypt } from "@/lib/crypto";
 
 interface MessageBubbleProps {
   message: {
@@ -24,15 +25,27 @@ export default function MessageBubble({ message, currentUserId }: MessageBubbleP
     minute: "2-digit",
   });
 
+  // Decrypt content for display
+  const displayContent = (() => {
+    try {
+      return simulateDecrypt(message.content);
+    } catch {
+      return message.content;
+    }
+  })();
+
   // Check if content is an image URL
-  const isImageUrl = /^https?:\/\/.*\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(message.content.trim());
+  const isImageUrl = /^https?:\/\/.*\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(displayContent.trim());
+
+  // Check if it's a shared track
+  const isTrackShare = displayContent.startsWith("🎵");
 
   // Highlight @mentions in text
   const renderContent = () => {
     if (isImageUrl) {
       return (
         <img
-          src={message.content.trim()}
+          src={displayContent.trim()}
           alt="Image"
           className="rounded-lg max-w-full max-h-64 object-cover"
           loading="lazy"
@@ -40,7 +53,7 @@ export default function MessageBubble({ message, currentUserId }: MessageBubbleP
       );
     }
 
-    const parts = message.content.split(/(@\w+)/g);
+    const parts = displayContent.split(/(@\w+)/g);
     return parts.map((part, i) => {
       if (part.startsWith("@")) {
         return (
@@ -75,6 +88,21 @@ export default function MessageBubble({ message, currentUserId }: MessageBubbleP
             border: isMine ? "none" : "1px solid var(--mq-border)",
           }}
         >
+          {/* Track share card */}
+          {isTrackShare && (
+            <div
+              className="flex items-center gap-2 mb-1.5 p-2 rounded-lg"
+              style={{ backgroundColor: "rgba(255,255,255,0.08)" }}
+            >
+              <span style={{ fontSize: 16 }}>🎵</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium truncate" style={{ color: "var(--mq-text)" }}>
+                  Поделился треком
+                </p>
+              </div>
+            </div>
+          )}
+
           <p className="text-sm break-words" style={{ color: "var(--mq-text)" }}>
             {renderContent()}
           </p>
