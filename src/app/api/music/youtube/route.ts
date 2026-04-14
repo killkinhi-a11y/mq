@@ -2,33 +2,34 @@ import { NextRequest, NextResponse } from "next/server";
 
 /**
  * Server-side YouTube search — scrapes YouTube search results page
- * to extract video IDs for full-track playback via YouTube IFrame API.
+ * to extract video IDs, then uses Piped API to get direct audio stream URLs.
  *
  * Strategy:
- *  1. Scrape YouTube search page (most reliable)
- *  2. Fallback: Invidious API
+ *  1. Scrape YouTube search page (most reliable) → videoId
+ *  2. Fallback: Invidious API → videoId
+ *  3. Piped API → audio stream URL from videoId
  *
- * Cache: 24 h in-memory.
+ * Cache: 24 h in-memory (stores videoId + audioUrl).
  */
 
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
-const ytCache = new Map<string, { videoId: string; expiry: number }>();
+const ytCache = new Map<string, { videoId: string; audioUrl: string | null; expiry: number }>();
 
-function getFromCache(key: string): string | null {
+function getFromCache(key: string): { videoId: string; audioUrl: string | null } | null {
   const entry = ytCache.get(key);
-  if (entry && entry.expiry > Date.now()) return entry.videoId;
+  if (entry && entry.expiry > Date.now()) return { videoId: entry.videoId, audioUrl: entry.audioUrl };
   ytCache.delete(key);
   return null;
 }
 
-function setCache(key: string, videoId: string) {
+function setCache(key: string, videoId: string, audioUrl: string | null) {
   if (ytCache.size > 500) {
     const now = Date.now();
     for (const [k, v] of ytCache) {
       if (v.expiry <= now) ytCache.delete(k);
     }
   }
-  ytCache.set(key, { videoId, expiry: Date.now() + CACHE_TTL });
+  ytCache.set(key, { videoId, audioUrl, expiry: Date.now() + CACHE_TTL });
 }
 
 /**
@@ -167,38 +168,100 @@ async function searchInvidious(query: string): Promise<string | null> {
   return null;
 }
 
+/**
+ * Use Piped API to get a direct audio stream URL for a YouTube video.
+ * Piped proxies YouTube audio, bypassing embedding restrictions.
+ */
+async function getPipedAudioUrl(videoId: string): Promise<string | null> {
+  const instances = [
+    "https://pipedapi.kavin.rocks",
+    "https://api.piped.projectsegfau.lt",
+    "https://pipedapi.in.projectsegfau.lt",
+  ];
+
+  for (const instance of instances) {
+    try {
+      const res = await fetch(`${instance}/streams/${videoId}`, {
+        signal: AbortSignal.timeout(10000),
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) continue;
+
+      const data = await res.json();
+      const audioStreams: Array<{
+        url?: string;
+        mimeType?: string;
+        bitrate?: number;
+        contentLength?: number;
+      }> = data.audioStreams || [];
+
+      // Prefer opus/webm 128kbps+, fallback to any audio stream sorted by bitrate
+      const sorted = audioStreams
+        .filter((s) => s.url && s.mimeType?.startsWith("audio/"))
+        .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+
+      if (sorted.length > 0) {
+        return sorted[0].url!;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const query = searchParams.get("q");
 
   if (!query || query.trim().length === 0) {
-    return NextResponse.json({ videoId: null, source: null });
+    return NextResponse.json({ videoId: null, audioUrl: null, source: null });
   }
 
   const cacheKey = `yt:${query.trim().toLowerCase()}`;
   const cached = getFromCache(cacheKey);
   if (cached) {
-    return NextResponse.json({ videoId: cached, source: "cache" });
+    return NextResponse.json({ videoId: cached.videoId, audioUrl: cached.audioUrl, source: "cache" });
   }
 
   try {
-    // Primary: scrape YouTube directly
+    // Step 1: Find videoId
     const videoId = await scrapeYouTube(query.trim());
 
-    if (videoId) {
-      setCache(cacheKey, videoId);
-      return NextResponse.json({ videoId, source: "youtube" });
+    if (!videoId) {
+      // Fallback: Invidious
+      const invId = await searchInvidious(query.trim());
+      if (invId) {
+        // Step 2: Try to get Piped audio URL
+        let audioUrl: string | null = null;
+        try {
+          audioUrl = await getPipedAudioUrl(invId);
+        } catch {
+          // Piped failed, still return videoId
+        }
+        setCache(cacheKey, invId, audioUrl);
+        return NextResponse.json({ videoId: invId, audioUrl, source: audioUrl ? "piped" : "invidious" });
+      }
+
+      return NextResponse.json({ videoId: null, audioUrl: null, source: null });
     }
 
-    // Fallback: Invidious
-    const invId = await searchInvidious(query.trim());
-    if (invId) {
-      setCache(cacheKey, invId);
-      return NextResponse.json({ videoId: invId, source: "invidious" });
+    // Step 2: Get Piped audio stream URL
+    let audioUrl: string | null = null;
+    try {
+      audioUrl = await getPipedAudioUrl(videoId);
+    } catch {
+      // Piped failed, still return videoId
     }
 
-    return NextResponse.json({ videoId: null, source: null });
+    setCache(cacheKey, videoId, audioUrl);
+
+    return NextResponse.json({
+      videoId,
+      audioUrl,
+      source: audioUrl ? "piped" : "youtube",
+    });
   } catch {
-    return NextResponse.json({ videoId: null, source: null });
+    return NextResponse.json({ videoId: null, audioUrl: null, source: null });
   }
 }
