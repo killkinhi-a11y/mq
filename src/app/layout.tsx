@@ -41,7 +41,7 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{
             __html: `(function(){
               // === NUCLEAR CACHE-BUST v6 ===
-              var BUILD_ID="mq-build-v6";
+              var BUILD_ID="mq-build-v7";
               // 0. Check if user has stale cached page — force reload
               var prevBuild=localStorage.getItem('mq-build-id');
               if(prevBuild && prevBuild!==BUILD_ID){

@@ -22,6 +22,7 @@ export default function ErrorBoundary({
       "is not a function",
       "Cannot read propert",
       "localStorage",
+      "482",  // React shellSuspendCounter — recoverable via reload
     ];
     const isStaleError = stalePatterns.some((p) => errorMsg.includes(p));
 

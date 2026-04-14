@@ -709,14 +709,14 @@ export default function MessengerView() {
                 </div>
               </div>
 
-              <AnimatePresence>
+              {/* Message list — no AnimatePresence wrapper to avoid React 19 #482 shellSuspendCounter overflow */}
                 {groupedMessages.length === 0 && (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-12">
+                  <div className="text-center py-12">
                     <Shield className="w-12 h-12 mx-auto mb-3" style={{ color: "var(--mq-text-muted)", opacity: 0.3 }} />
                     <p className="text-sm" style={{ color: "var(--mq-text-muted)" }}>
                       Нет сообщений
                     </p>
-                  </motion.div>
+                  </div>
                 )}
 
                 {groupedMessages.map((group) => (
@@ -812,7 +812,6 @@ export default function MessengerView() {
                     })}
                   </div>
                 ))}
-              </AnimatePresence>
             </div>
 
             {/* @mention dropdown */}
