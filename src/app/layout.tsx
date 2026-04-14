@@ -23,6 +23,9 @@ export const metadata: Metadata = {
   },
 };
 
+// Force this page to never be cached by CDN / browser
+export const revalidate = 0;
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -30,6 +33,22 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ru" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){
+              try{
+                var d=localStorage.getItem("mq-player-store");
+                if(d){
+                  var p=JSON.parse(d);
+                  var v=p&&p.version?p.version:0;
+                  if(v<3){localStorage.removeItem("mq-player-store")}
+                }
+              }catch(e){try{localStorage.removeItem("mq-player-store")}catch(x){}}
+            })()`,
+          }}
+        />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         style={{ backgroundColor: "var(--mq-bg, #0e0e0e)" }}

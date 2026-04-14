@@ -1,6 +1,33 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useCallback } from "react";
+
+// Known stale-state errors from old builds
+const STALE_ERRORS = [
+  "is not defined",
+  "is not a function",
+  "Cannot read",
+  "Cannot destructure",
+  "hydrat",
+];
+
+function isStaleError(msg: string): boolean {
+  return STALE_ERRORS.some((p) => msg.includes(p));
+}
+
+async function clearAllBrowserData() {
+  // 1. Clear localStorage
+  try { localStorage.clear(); } catch {}
+  // 2. Clear sessionStorage
+  try { sessionStorage.clear(); } catch {}
+  // 3. Clear all Cache API caches (Service Workers, etc.)
+  if ("caches" in window) {
+    try {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    } catch {}
+  }
+}
 
 export default function ErrorBoundary({
   error,
@@ -9,31 +36,75 @@ export default function ErrorBoundary({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const errorMsg = error?.message || "";
+
+  // On mount, if this looks like a stale-data error, auto-clear and reload
   useEffect(() => {
-    console.error("MQ Player Error:", error);
-    // Auto-clear corrupted localStorage for store/hydration errors
-    const msg = error?.message || "";
-    if (msg.includes("is not defined") || msg.includes("is not a function") || msg.includes("Cannot read") || msg.includes("hydrat")) {
-      console.warn("Auto-clearing localStorage due to error:", msg);
-      try { localStorage.removeItem("mq-player-store"); } catch {}
+    console.error("[MQ Error]", errorMsg);
+    if (isStaleError(errorMsg)) {
+      clearAllBrowserData().then(() => {
+        // Navigate to root with cache-bust to force fresh HTML + chunks
+        const bust = Date.now();
+        window.location.replace("/?_cb=" + bust);
+      });
     }
-  }, [error]);
+  }, [errorMsg]);
 
-  const handleReset = () => {
-    // Clear corrupted localStorage data
-    try {
-      localStorage.removeItem("mq-player-store");
-    } catch {}
+  const handleFullReset = useCallback(async () => {
+    await clearAllBrowserData();
+    window.location.replace("/?_cb=" + Date.now());
+  }, []);
+
+  const handleRetry = useCallback(() => {
     reset();
-  };
+  }, [reset]);
 
-  const handleFullReset = () => {
-    try {
-      localStorage.removeItem("mq-player-store");
-    } catch {}
-    window.location.href = "/";
-  };
+  // For stale errors, show a "clearing data" message (auto-reload is in progress)
+  if (isStaleError(errorMsg)) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center p-4"
+        style={{ backgroundColor: "var(--mq-bg, #0e0e0e)" }}
+      >
+        <div
+          className="w-full max-w-md rounded-2xl p-6 text-center"
+          style={{
+            backgroundColor: "var(--mq-card, #1a1a1a)",
+            border: "1px solid var(--mq-border, #333)",
+          }}
+        >
+          <div
+            className="w-10 h-10 mx-auto mb-4 rounded-full border-2 border-t-transparent animate-spin"
+            style={{ borderColor: "var(--mq-accent, #e03131)", borderTopColor: "transparent" }}
+          />
+          <h2
+            className="text-xl font-bold mb-2"
+            style={{ color: "var(--mq-text, #f5f5f5)" }}
+          >
+            Очистка данных...
+          </h2>
+          <p
+            className="text-sm mb-6"
+            style={{ color: "var(--mq-text-muted, #888)" }}
+          >
+            Обнаружены устаревшие данные. Страница перезагрузится автоматически.
+          </p>
+          <button
+            onClick={handleFullReset}
+            className="w-full p-3 rounded-xl text-sm font-medium"
+            style={{
+              backgroundColor: "var(--mq-accent, #e03131)",
+              color: "var(--mq-text, #f5f5f5)",
+            }}
+          >
+            Сбросить и перезагрузить вручную
+          </button>
+        </div>
+      </div>
+    );
+  }
 
+  // Generic error fallback
   return (
     <div
       className="min-h-screen flex items-center justify-center p-4"
@@ -63,18 +134,17 @@ export default function ErrorBoundary({
           style={{ color: "var(--mq-text-muted, #888)" }}
         >
           Произошла ошибка при загрузке приложения.
-          Попробуйте перезагрузить страницу.
         </p>
         <div className="space-y-3">
           <button
-            onClick={handleReset}
+            onClick={handleRetry}
             className="w-full p-3 rounded-xl text-sm font-medium"
             style={{
               backgroundColor: "var(--mq-accent, #e03131)",
               color: "var(--mq-text, #f5f5f5)",
             }}
           >
-            Перезагрузить
+            Попробовать снова
           </button>
           <button
             onClick={handleFullReset}
@@ -85,14 +155,14 @@ export default function ErrorBoundary({
               color: "var(--mq-text-muted, #888)",
             }}
           >
-            Сбросить данные и перезагрузить
+            Сбросить все данные
           </button>
         </div>
         <p
           className="text-xs mt-4"
           style={{ color: "var(--mq-text-muted, #888)", opacity: 0.5 }}
         >
-          {error.message || "Unknown error"}
+          {errorMsg || "Unknown error"}
         </p>
       </div>
     </div>
