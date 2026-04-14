@@ -543,7 +543,6 @@ export const useAppStore = create<AppState>()(
         };
       }),
       partialize: (state) => ({
-        _v: STORE_VERSION,
         currentTheme: state.currentTheme,
         customAccent: state.customAccent,
         animationsEnabled: state.animationsEnabled,
@@ -565,6 +564,11 @@ export const useAppStore = create<AppState>()(
         playlists: state.playlists,
         history: state.history,
       }),
+      migrate: (persisted: unknown, version: number) => {
+        // On any version mismatch, start completely fresh
+        console.warn(`[MQ Store] migrating from version ${version} to ${STORE_VERSION} — resetting`);
+        return { ...initialState };
+      },
       merge: (persisted, current) => {
         // If persisted is null/undefined (cleared by version check), use defaults
         if (!persisted) return current;
