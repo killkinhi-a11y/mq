@@ -532,7 +532,24 @@ export default function MessengerView() {
                         {group.label}
                       </div>
                     </div>
-                    {group.messages.map((msg) => (
+                    {group.messages.map((msg) => {
+                      let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+                      let longPressTriggered = false;
+                      const handleTouchStart = (e: React.TouchEvent) => {
+                        longPressTriggered = false;
+                        longPressTimer = setTimeout(() => {
+                          longPressTriggered = true;
+                          const touch = e.touches[0];
+                          setContextMenuMsgId({ id: msg.id, x: touch.clientX - 80, y: touch.clientY - 100 });
+                        }, 500);
+                      };
+                      const handleTouchEnd = () => {
+                        if (longPressTimer) clearTimeout(longPressTimer);
+                      };
+                      const handleTouchMove = () => {
+                        if (longPressTimer) clearTimeout(longPressTimer);
+                      };
+                      return (
                       <div
                         key={msg.id}
                         className="relative group/bubble"
@@ -541,19 +558,23 @@ export default function MessengerView() {
                           e.stopPropagation();
                           setContextMenuMsgId({ id: msg.id, x: e.clientX, y: e.clientY });
                         }}
+                        onTouchStart={handleTouchStart}
+                        onTouchEnd={handleTouchEnd}
+                        onTouchMove={handleTouchMove}
                       >
                         <MessageBubble message={msg} currentUserId={userId || undefined} />
                         {/* Long-press / more button for mobile */}
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
+                            if (longPressTriggered) return;
                             const rect = (e.target as HTMLElement).getBoundingClientRect();
                             setContextMenuMsgId({ id: msg.id, x: rect.right - 160, y: rect.top - 120 });
                           }}
-                          className="absolute top-1 right-1 p-1 rounded-full opacity-0 group-hover/bubble:opacity-100 transition-opacity z-10 sm:hidden"
+                          className="absolute top-1 right-1 p-1.5 rounded-full z-10 sm:hidden"
                           style={{ backgroundColor: "var(--mq-card)", border: "1px solid var(--mq-border)" }}
                         >
-                          <MoreVertical className="w-3 h-3" style={{ color: "var(--mq-text-muted)" }} />
+                          <MoreVertical className="w-3.5 h-3.5" style={{ color: "var(--mq-text-muted)" }} />
                         </button>
                         {/* Context menu dropdown */}
                         {contextMenuMsgId && contextMenuMsgId.id === msg.id && (
@@ -595,7 +616,8 @@ export default function MessengerView() {
                           </div>
                         )}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ))}
               </AnimatePresence>

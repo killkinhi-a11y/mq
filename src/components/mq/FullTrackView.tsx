@@ -284,7 +284,7 @@ export default function FullTrackView() {
                 height: "calc(100% + 60px)",
                 left: "-30px",
                 top: "-30px",
-                opacity: isPlaying ? 0.75 : 0,
+                opacity: isPlaying ? 0.75 : 0.15,
                 transition: "opacity 0.4s",
               }}
             />

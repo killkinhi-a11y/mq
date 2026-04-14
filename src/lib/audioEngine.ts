@@ -101,13 +101,13 @@ export function getFrequencyData(dataArray: Uint8Array): Uint8Array {
   // Accumulate zero frames
   _zerosCheckCount++;
 
-  // After 60 consecutive zero frames (~1 second), assume CORS blocked
-  if (_zerosCheckCount > 60) {
+  // After 15 consecutive zero frames (~250ms), assume CORS blocked
+  if (_zerosCheckCount > 15) {
     _corsBlocked = true;
   }
 
   // If recently had non-zero data, don't simulate yet (might be silence)
-  if (Date.now() - _lastNonZeroFrame < 3000) {
+  if (Date.now() - _lastNonZeroFrame < 1500) {
     return dataArray;
   }
 
@@ -125,8 +125,8 @@ export function getFrequencyData(dataArray: Uint8Array): Uint8Array {
     const mid = Math.max(0, 1 - Math.abs(freq - 0.3) * 5) * (0.3 + 0.3 * Math.sin(now * 6 + i * 0.2));
     const high = Math.max(0, freq - 0.5) * 2 * (0.2 + 0.2 * Math.sin(now * 8 + i * 0.3));
     // Add some randomness
-    const noise = 0.1 * Math.sin(now * 13.7 + i * 1.7);
-    const value = Math.max(0, Math.min(255, (bass + mid + high + noise) * 180));
+    const noise = 0.15 * Math.sin(now * 13.7 + i * 1.7);
+    const value = Math.max(0, Math.min(255, (bass + mid + high + noise) * 200));
     dataArray[i] = Math.floor(value);
   }
 

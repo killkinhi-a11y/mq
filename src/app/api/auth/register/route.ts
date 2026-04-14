@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(
       {
-        message: "Регистрация успешна! Проверьте почту для подтверждения.",
+        message: "Регистрация успешна! Добро пожаловать в MQ Player.",
         userId: user.id,
         email: user.email,
       },

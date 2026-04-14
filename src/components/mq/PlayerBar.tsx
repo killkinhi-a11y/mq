@@ -565,8 +565,8 @@ export default function PlayerBar() {
       {/* Audio visualization waveform */}
       <canvas
         ref={canvasRef}
-        className="w-full pointer-events-none"
-        style={{ height: 32, opacity: isPlaying ? 0.6 : 0, transition: "opacity 0.3s" }}
+        className="w-full pointer-events-none block"
+        style={{ height: 32, opacity: isPlaying ? 0.7 : 0.2, transition: "opacity 0.3s", minHeight: 32 }}
       />
     </motion.div>
   );

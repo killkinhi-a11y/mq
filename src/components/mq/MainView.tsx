@@ -22,7 +22,7 @@ export default function MainView() {
 
   // Build taste profile from liked tracks + history
   const tasteProfile = useMemo(() => {
-    const { likedTracksData, history, likedTrackIds } = useAppStore.getState();
+    const { likedTracksData, history, likedTrackIds, dislikedTrackIds } = useAppStore.getState();
 
     const genreCounts: Record<string, number> = {};
     const artistCounts: Record<string, number> = {};
@@ -52,10 +52,10 @@ export default function MainView() {
       .slice(0, 2)
       .map(([artist]) => artist);
 
-    const excludeIds = [...likedTrackIds, ...history.slice(0, 30).map(h => h.track.id)].join(",");
+    const excludeIds = [...likedTrackIds, ...dislikedTrackIds, ...history.slice(0, 30).map(h => h.track.id)].join(",");
 
     return { topGenres, topArtists, excludeIds };
-  }, [likedTrackIds, history]);
+  }, [likedTrackIds, dislikedTrackIds, history]);
 
   // Fetch trending tracks
   useEffect(() => {

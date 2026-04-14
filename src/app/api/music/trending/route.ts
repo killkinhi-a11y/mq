@@ -20,18 +20,21 @@ function setCache(key: string, data: unknown): void {
 }
 
 const trendingQueries = [
-  "top hits 2025",
-  "billboard hot 100",
-  "most played songs 2025",
-  "viral music 2025",
-  "chart topping hits",
-  "best new music 2025",
-  "popular edm 2025",
-  "top hip hop 2025",
-  "trending pop songs",
-  "best rap 2025",
-  "hit songs playlist",
-  "summer hits 2025",
+  "pop hits 2025",
+  "top charts",
+  "best music 2025",
+  "hip hop hits",
+  "electronic dance",
+  "indie favorites",
+  "r&b soul hits",
+  "rock anthems",
+  "lofi chill beats",
+  "deep house 2025",
+  "latin music hits",
+  "k-pop 2025",
+  "uk drill",
+  "afrobeats 2025",
+  "synthwave retro",
 ];
 
 export async function GET() {
@@ -40,11 +43,11 @@ export async function GET() {
   if (cached) return NextResponse.json(cached);
 
   try {
-    // Pick 3 random trending queries
-    const shuffled = trendingQueries.sort(() => Math.random() - 0.5).slice(0, 3);
+    // Pick 4 random trending queries for more variety
+    const shuffled = trendingQueries.sort(() => Math.random() - 0.5).slice(0, 4);
 
     const results = await Promise.allSettled(
-      shuffled.map((q) => searchSCTracks(q, 20))
+      shuffled.map((q) => searchSCTracks(q, 25))
     );
 
     const allTracks: ReturnType<typeof searchSCTracks> extends Promise<infer T> ? T : never = [];
@@ -55,13 +58,19 @@ export async function GET() {
       for (const track of result.value) {
         if (seenIds.has(track.scTrackId)) continue;
         if (!track.cover) continue; // Filter out tracks without artwork for better quality
+        // Prefer full tracks over previews
         seenIds.add(track.scTrackId);
         allTracks.push(track);
       }
     }
 
-    // Shuffle and take top 20
-    const responseData = { tracks: allTracks.sort(() => Math.random() - 0.5).slice(0, 20) };
+    // Sort: prefer full tracks, then shuffle for variety
+    const sorted = allTracks.sort((a, b) => {
+      if (a.scIsFull && !b.scIsFull) return -1;
+      if (!a.scIsFull && b.scIsFull) return 1;
+      return Math.random() - 0.5;
+    });
+    const responseData = { tracks: sorted.slice(0, 25) };
     setCache(cacheKey, responseData);
     return NextResponse.json(responseData);
   } catch {
