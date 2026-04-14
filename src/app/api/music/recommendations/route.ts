@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { searchSCTracks } from "@/lib/soundcloud";
 
 /**
- * Recommendations — FAST version (iTunes only, no YouTube scraping).
+ * Recommendations — SoundCloud discovery queries.
  */
 
 const cache = new Map<string, { data: unknown; expiry: number }>();
@@ -18,46 +19,52 @@ function setCache(key: string, data: unknown): void {
   cache.set(key, { data, expiry: Date.now() + CACHE_TTL });
 }
 
+const recQueries = [
+  "chill vibes",
+  "lofi hip hop",
+  "deep house mix",
+  "indie acoustic",
+  "ambient electronic",
+  "soul r&b new",
+  "synthwave retro",
+  "jazz lounge",
+  "drum and bass",
+  "folk acoustic",
+  "pop hits new",
+  "rock alternative",
+  "techno underground",
+  "trap beats",
+];
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const genre = searchParams.get("genre") || "random";
 
-  const cacheKey = `rec:v2:${genre}`;
+  const cacheKey = `rec:sc:${genre}`;
   const cached = getFromCache(cacheKey);
   if (cached) return NextResponse.json(cached);
 
   try {
-    const queries = ["trending pop", "new rock", "electronic dance", "hip hop new", "indie fresh"];
-    const shuffled = queries.sort(() => Math.random() - 0.5).slice(0, 2);
-
-    const allTracks = [];
-    const seenIds = new Set<string>();
+    let queries: string[];
+    if (genre !== "random") {
+      queries = [`${genre} new music`, `${genre} popular`];
+    } else {
+      queries = recQueries.sort(() => Math.random() - 0.5).slice(0, 3);
+    }
 
     const results = await Promise.allSettled(
-      shuffled.map((q) =>
-        fetch(
-          `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=music&limit=10`,
-          { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8000) }
-        ).then((r) => (r.ok ? r.json() : { results: [] }))
-      )
+      queries.map((q) => searchSCTracks(q, 10))
     );
+
+    const allTracks: Awaited<ReturnType<typeof searchSCTracks>> = [];
+    const seenIds = new Set<number>();
 
     for (const result of results) {
       if (result.status !== "fulfilled") continue;
-      for (const t of result.value.results || []) {
-        if (!t.previewUrl || seenIds.has(String(t.trackId))) continue;
-        seenIds.add(String(t.trackId));
-        allTracks.push({
-          id: `itunes_${t.trackId}`,
-          title: t.trackName || "Unknown",
-          artist: t.artistName || "Unknown",
-          album: t.collectionName || "Unknown",
-          duration: Math.round((t.trackTimeMillis || 30000) / 1000),
-          cover: (t.artworkUrl100 || "").replace("100x100bb", "500x500bb"),
-          audioUrl: t.previewUrl,
-          previewUrl: t.previewUrl,
-          source: "itunes",
-        });
+      for (const track of result.value) {
+        if (seenIds.has(track.scTrackId)) continue;
+        seenIds.add(track.scTrackId);
+        allTracks.push(track);
       }
     }
 

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { searchSCTracks } from "@/lib/soundcloud";
 
 /**
- * Genre search — FAST version (Deezer only, no YouTube scraping).
+ * Genre search — SoundCloud genre filtering.
  */
 
 const cache = new Map<string, { data: unknown; expiry: number }>();
@@ -26,40 +27,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ tracks: [] });
   }
 
-  const cacheKey = `genre:v2:${genre.trim().toLowerCase()}`;
+  const cacheKey = `genre:sc:${genre.trim().toLowerCase()}`;
   const cached = getFromCache(cacheKey);
   if (cached) return NextResponse.json(cached);
 
   try {
-    const res = await fetch(
-      `https://api.deezer.com/search?q=${encodeURIComponent(genre.trim())}&limit=20`,
-      { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(6000) }
-    );
-
-    if (!res.ok) return NextResponse.json({ tracks: [] });
-
-    const data = await res.json();
-    const tracks = data.data || [];
-    if (tracks.length === 0) return NextResponse.json({ tracks: [] });
-
-    const transformed = tracks.map((item: Record<string, unknown>) => {
-      const album = item.album as Record<string, unknown> | undefined;
-      const artist = item.artist as Record<string, unknown> | undefined;
-      return {
-        id: `dz_${item.id}`,
-        title: item.title || "Unknown Track",
-        artist: artist?.name || "Unknown Artist",
-        album: album?.title || "Unknown Album",
-        duration: (item.duration as number) || 30,
-        cover: (album?.cover_big || album?.cover_medium || "https://picsum.photos/seed/default/300/300") as string,
-        genre: genre,
-        audioUrl: (item.preview || "") as string,
-        previewUrl: (item.preview || "") as string,
-        source: "deezer" as const,
-      };
-    });
-
-    const responseData = { tracks: transformed.slice(0, 20) };
+    const tracks = await searchSCTracks(`${genre.trim()} music`, 25);
+    const responseData = { tracks: tracks.slice(0, 20) };
     setCache(cacheKey, responseData);
     return NextResponse.json(responseData);
   } catch {

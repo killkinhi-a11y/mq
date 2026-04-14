@@ -8,21 +8,6 @@ import {
   Shuffle, Music, Loader2, Moon, Clock, X, PictureInPicture2
 } from "lucide-react";
 import { formatDuration } from "@/lib/musicApi";
-import { getYouTubePlayer } from "@/lib/youtubePlayer";
-
-async function resolveYouTubeId(title: string, artist: string): Promise<string | null> {
-  try {
-    const query = `${title} ${artist}`;
-    const res = await fetch(`/api/music/resolve-youtube?q=${encodeURIComponent(query)}`, {
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data.videoId || null;
-  } catch {
-    return null;
-  }
-}
 
 async function resolveSoundCloudStream(scTrackId: number): Promise<{ url: string; isPreview: boolean; duration: number; fullDuration: number } | null> {
   try {
@@ -44,22 +29,23 @@ export default function PlayerBar() {
     animationsEnabled, sleepTimerActive, sleepTimerRemaining,
     startSleepTimer, stopSleepTimer, updateSleepTimer,
     setFullTrackViewOpen, setPiPActive, isPiPActive,
-    setPlaybackMode, playbackMode,
+    setPlaybackMode,
   } = useAppStore();
 
   const progressRef = useRef<HTMLDivElement>(null);
   const volumeRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const ytContainerRef = useRef<HTMLDivElement>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const animFrameRef = useRef<number>(0);
 
   const [isDragging, setIsDragging] = useState(false);
   const [isLoadingTrack, setIsLoadingTrack] = useState(false);
   const [showSleepTimer, setShowSleepTimer] = useState(false);
   const [playError, setPlayError] = useState(false);
-  const [useYouTube, setUseYouTube] = useState(false);
-  const [resolvingYT, setResolvingYT] = useState(false);
 
-  const ytPlayer = useRef<ReturnType<typeof getYouTubePlayer> | null>(null);
   const nextTrackRef = useRef(nextTrack);
   const setProgressRef = useRef(setProgress);
   const setDurationRef = useRef(setDuration);
@@ -73,8 +59,28 @@ export default function PlayerBar() {
   // ── HTML5 Audio init ────────────────────────────────────
   useEffect(() => {
     const audio = new Audio();
+    audio.crossOrigin = "anonymous";
     audio.preload = "auto";
     audioRef.current = audio;
+
+    // Setup Web Audio API for visualization
+    const setupAudioContext = () => {
+      if (audioCtxRef.current || sourceRef.current) return;
+      try {
+        const ctx = new AudioContext();
+        const source = ctx.createMediaElementSource(audio);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 64;
+        analyser.smoothingTimeConstant = 0.75;
+        source.connect(analyser);
+        analyser.connect(ctx.destination);
+        analyserRef.current = analyser;
+        audioCtxRef.current = ctx;
+        sourceRef.current = source;
+      } catch {
+        // Web Audio API not available or already connected
+      }
+    };
 
     const onTimeUpdate = () => {
       if (!isDragging) setProgressRef.current(audio.currentTime);
@@ -100,6 +106,7 @@ export default function PlayerBar() {
     const onCanPlay = () => {
       setIsLoadingTrack(false);
       setPlayError(false);
+      setupAudioContext();
       if (isPlayingRef.current) {
         audio.play().catch(() => useAppStore.getState().togglePlay());
       }
@@ -107,6 +114,7 @@ export default function PlayerBar() {
     const onPlaying = () => {
       setIsLoadingTrack(false);
       setPlayError(false);
+      setupAudioContext();
     };
 
     audio.addEventListener("timeupdate", onTimeUpdate);
@@ -127,8 +135,67 @@ export default function PlayerBar() {
       audio.removeEventListener("playing", onPlaying);
       audio.pause();
       audio.src = "";
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Audio Visualization ─────────────────────────────────
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const analyser = analyserRef.current;
+    if (!canvas || !analyser) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const draw = () => {
+      animFrameRef.current = requestAnimationFrame(draw);
+
+      const bufferLength = analyser.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+      analyser.getByteFrequencyData(dataArray);
+
+      const dpr = window.devicePixelRatio || 1;
+      const displayWidth = canvas.clientWidth;
+      const displayHeight = canvas.clientHeight;
+      if (canvas.width !== displayWidth * dpr || canvas.height !== displayHeight * dpr) {
+        canvas.width = displayWidth * dpr;
+        canvas.height = displayHeight * dpr;
+        ctx.scale(dpr, dpr);
+      }
+
+      ctx.clearRect(0, 0, displayWidth, displayHeight);
+
+      const barCount = 24;
+      const gap = 2;
+      const barWidth = (displayWidth - gap * (barCount - 1)) / barCount;
+
+      for (let i = 0; i < barCount; i++) {
+        const dataIndex = Math.floor(i * bufferLength / barCount);
+        const value = dataArray[dataIndex] / 255;
+        const barHeight = Math.max(2, value * displayHeight);
+
+        const x = i * (barWidth + gap);
+        const y = displayHeight - barHeight;
+
+        // Gradient color based on frequency
+        const hue = 0 + (i / barCount) * 40;
+        const accentColor = getComputedStyle(document.documentElement).getPropertyValue("--mq-accent").trim();
+
+        ctx.fillStyle = accentColor || "#e03131";
+        ctx.globalAlpha = 0.4 + value * 0.6;
+        ctx.beginPath();
+        ctx.roundRect(x, y, barWidth, barHeight, 1);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    };
+
+    draw();
+    return () => {
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    };
+  }, [currentTrack?.id]); // re-setup when track changes
 
   // ── Sleep timer ──────────────────────────────────────────
   useEffect(() => {
@@ -137,47 +204,7 @@ export default function PlayerBar() {
     return () => clearInterval(interval);
   }, [sleepTimerActive, updateSleepTimer]);
 
-  // ── Play with HTML5 audio (iTunes/Deezer preview) ──────
-  const playWithHtml5 = useCallback((track?: typeof currentTrack) => {
-    const t = track || useAppStore.getState().currentTrack;
-    if (!t) return;
-
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    // Stop YouTube if running
-    if (ytPlayer.current) {
-      try { ytPlayer.current.destroy(); } catch { /* ignore */ }
-    }
-
-    let audioSrc = t.audioUrl || t.previewUrl || "";
-    if (!audioSrc) {
-      setIsLoadingTrack(false);
-      setPlayError(true);
-      return;
-    }
-
-    if (audioSrc.includes("itunes") || audioSrc.includes("apple") || audioSrc.includes("mzstatic")) {
-      setPlaybackMode("itunes");
-    } else if (audioSrc.includes("deezer") || audioSrc.includes("cdns-preview")) {
-      setPlaybackMode("deezer");
-    } else if (audioSrc.includes("sndcdn")) {
-      setPlaybackMode("soundcloud");
-    } else {
-      setPlaybackMode("itunes");
-    }
-
-    setUseYouTube(false);
-    audio.pause();
-    audio.src = audioSrc;
-    audio.load();
-    audio.play().catch(() => {
-      setPlayError(true);
-      setIsLoadingTrack(false);
-    });
-  }, [setPlaybackMode]);
-
-  // ── Play with SoundCloud stream ─────────────────────────
+  // ── Play SoundCloud track ───────────────────────────────
   const playWithSoundCloud = useCallback(async (scTrackId: number, track?: typeof currentTrack) => {
     const t = track || useAppStore.getState().currentTrack;
     if (!t) return;
@@ -185,27 +212,10 @@ export default function PlayerBar() {
     const audio = audioRef.current;
     if (!audio) return;
 
-    // Stop YouTube if running
-    if (ytPlayer.current) {
-      try { ytPlayer.current.destroy(); } catch { /* ignore */ }
-    }
-
-    setUseYouTube(false);
     setPlaybackMode("soundcloud");
 
     const stream = await resolveSoundCloudStream(scTrackId);
     if (!stream || !stream.url) {
-      // Fallback to YouTube
-      console.warn("[PlayerBar] SoundCloud stream failed, trying YouTube");
-      const ytId = await resolveYouTubeId(t.title, t.artist);
-      if (ytId) {
-        const state = useAppStore.getState();
-        const updatedTrack = { ...t, youtubeId: ytId };
-        const newQueue = state.queue.map((tr) => tr.id === t.id ? updatedTrack : tr);
-        useAppStore.setState({ queue: newQueue, currentTrack: updatedTrack });
-        // Will re-trigger the effect with the new youtubeId
-        return;
-      }
       setPlayError(true);
       setIsLoadingTrack(false);
       return;
@@ -219,55 +229,6 @@ export default function PlayerBar() {
       setIsLoadingTrack(false);
     });
   }, [setPlaybackMode]);
-
-  // ── Play with YouTube ────────────────────────────────────
-  const playWithYouTube = useCallback(async (videoId: string) => {
-    const player = ytPlayer.current || getYouTubePlayer();
-
-    if (!ytContainerRef.current) return;
-
-    if (!ytPlayer.current) {
-      player.setContainer(ytContainerRef.current);
-      player.setCallbacks({
-        onReady: () => {
-          setIsLoadingTrack(false);
-          setPlayError(false);
-        },
-        onStateChange: (state) => {
-          if (state === "playing") {
-            setIsLoadingTrack(false);
-            setPlayError(false);
-          } else if (state === "ended") {
-            nextTrackRef.current();
-          }
-        },
-        onProgress: (currentTime, dur) => {
-          if (!useAppStore.getState) return;
-          setProgressRef.current(currentTime);
-          if (dur && isFinite(dur)) setDurationRef.current(dur);
-        },
-        onError: () => {
-          console.warn("[PlayerBar] YouTube error, falling back");
-          setUseYouTube(false);
-          playWithHtml5();
-        },
-      });
-      ytPlayer.current = player;
-    }
-
-    setUseYouTube(true);
-    setPlaybackMode("youtube");
-
-    // Stop HTML5 audio
-    const audio = audioRef.current;
-    if (audio) { audio.pause(); audio.src = ""; }
-
-    const loaded = await player.loadVideo(videoId, true);
-    if (!loaded) {
-      setUseYouTube(false);
-      playWithHtml5();
-    }
-  }, [playWithHtml5, setPlaybackMode]);
 
   // ── Handle track change ─────────────────────────────────
   const prevTrackIdRef = useRef<string | null>(null);
@@ -289,65 +250,23 @@ export default function PlayerBar() {
     const loadTrack = async () => {
       setIsLoadingTrack(true);
       setPlayError(false);
-      setResolvingYT(false);
 
-      // Stop current playback
       audio.pause();
       audio.src = "";
-      if (ytPlayer.current) {
-        try { ytPlayer.current.destroy(); } catch { /* ignore */ }
-      }
 
-      // 1. If track has cached youtubeId, use YouTube directly
-      if (currentTrack.youtubeId) {
-        await playWithYouTube(currentTrack.youtubeId);
-        setIsLoadingTrack(false);
-        return;
-      }
-
-      // 2. SoundCloud track — try stream first
       if (currentTrack.source === "soundcloud" && currentTrack.scTrackId) {
-        if (currentTrack.scIsFull) {
-          // Full track available on SoundCloud
-          await playWithSoundCloud(currentTrack.scTrackId, currentTrack);
-          setIsLoadingTrack(false);
-          return;
-        }
-        // SNIP (30s preview) — try YouTube for full track
-        const ytId = await resolveYouTubeId(currentTrack.title, currentTrack.artist);
-        if (ytId) {
-          const state = useAppStore.getState();
-          const updatedTrack = { ...currentTrack, youtubeId: ytId };
-          const newQueue = state.queue.map((t) =>
-            t.id === currentTrack.id ? updatedTrack : t
-          );
-          useAppStore.setState({ queue: newQueue, currentTrack: updatedTrack });
-          setIsLoadingTrack(false);
-          return;
-        }
-        // No YouTube found — play SC preview
         await playWithSoundCloud(currentTrack.scTrackId, currentTrack);
-        setIsLoadingTrack(false);
-        return;
-      }
-
-      // 3. Try to resolve YouTube videoId for other sources
-      setResolvingYT(true);
-      const ytId = await resolveYouTubeId(currentTrack.title, currentTrack.artist);
-      setResolvingYT(false);
-
-      if (ytId) {
-        const state = useAppStore.getState();
-        const updatedTrack = { ...currentTrack, youtubeId: ytId };
-        const newQueue = state.queue.map((t) =>
-          t.id === currentTrack.id ? updatedTrack : t
-        );
-        useAppStore.setState({ queue: newQueue, currentTrack: updatedTrack });
-
-        await playWithYouTube(ytId);
+      } else if (currentTrack.audioUrl) {
+        setPlaybackMode("soundcloud");
+        audio.src = currentTrack.audioUrl;
+        audio.load();
+        audio.play().catch(() => {
+          setPlayError(true);
+          setIsLoadingTrack(false);
+        });
       } else {
-        // No YouTube found — use HTML5 audio (preview)
-        playWithHtml5();
+        setPlayError(true);
+        setIsLoadingTrack(false);
       }
 
       setIsLoadingTrack(false);
@@ -358,12 +277,6 @@ export default function PlayerBar() {
 
   // ── Handle play/pause ───────────────────────────────────
   useEffect(() => {
-    if (useYouTube && ytPlayer.current) {
-      if (isPlaying) ytPlayer.current.play();
-      else ytPlayer.current.pause();
-      return;
-    }
-
     const audio = audioRef.current;
     if (!audio || !audio.src || audio.readyState < 2) return;
 
@@ -372,14 +285,20 @@ export default function PlayerBar() {
     } else {
       audio.pause();
     }
-  }, [isPlaying, useYouTube]);
+  }, [isPlaying]);
 
   // ── Handle volume ───────────────────────────────────────
   useEffect(() => {
     const audio = audioRef.current;
     if (audio) audio.volume = volume / 100;
-    if (ytPlayer.current) ytPlayer.current.setVolume(volume);
   }, [volume]);
+
+  // ── Volume mouse wheel ──────────────────────────────────
+  const handleVolumeWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -5 : 5;
+    setVolume(Math.max(0, Math.min(100, volume + delta)));
+  }, [volume, setVolume]);
 
   // ── Progress drag/seek ──────────────────────────────────
   const seekToPosition = useCallback((clientX: number) => {
@@ -390,12 +309,10 @@ export default function PlayerBar() {
     const newTime = pct * duration;
     setProgress(newTime);
 
-    if (useYouTube && ytPlayer.current) {
-      ytPlayer.current.seekTo(newTime);
-    } else if (audioRef.current) {
+    if (audioRef.current) {
       audioRef.current.currentTime = newTime;
     }
-  }, [duration, setProgress, useYouTube]);
+  }, [duration, setProgress]);
 
   const handleProgressMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -444,28 +361,12 @@ export default function PlayerBar() {
   const progressPct = duration > 0 ? (progress / duration) * 100 : 0;
 
   const modeLabel = (() => {
-    if (isLoadingTrack || resolvingYT) return null;
-    if (playbackMode === "youtube") {
-      return <span style={{ color: "#ff4444", marginLeft: 6, fontSize: 10 }}>&#9654; Полный трек</span>;
-    }
-    if (playbackMode === "soundcloud" && currentTrack.scIsFull) {
+    if (isLoadingTrack) return null;
+    if (currentTrack.scIsFull) {
       return <span style={{ color: "#ff5500", marginLeft: 6, fontSize: 10 }}>&#9654; Полный трек</span>;
     }
-    if (playbackMode === "soundcloud" && !currentTrack.scIsFull) {
-      return <span style={{ color: "var(--mq-text-muted)", marginLeft: 6, fontSize: 10 }}>Превью 30с</span>;
-    }
-    if (playbackMode === "itunes" || playbackMode === "deezer") {
-      return <span style={{ color: "var(--mq-text-muted)", marginLeft: 6, fontSize: 10 }}>Превью 30с</span>;
-    }
-    return null;
+    return <span style={{ color: "var(--mq-text-muted)", marginLeft: 6, fontSize: 10 }}>Превью 30с</span>;
   })();
-
-  const sourceTag = playbackMode === "youtube" ? "YouTube"
-    : playbackMode === "soundcloud" ? "SoundCloud"
-    : currentTrack.source === "itunes" ? "iTunes"
-    : currentTrack.source === "soundcloud" ? "SoundCloud"
-    : currentTrack.source === "deezer" ? "Deezer"
-    : "";
 
   return (
     <motion.div
@@ -516,9 +417,7 @@ export default function PlayerBar() {
             <p className="text-sm font-medium truncate" style={{ color: "var(--mq-text)" }}>{currentTrack.title}</p>
             <p className="text-xs truncate" style={{ color: "var(--mq-text-muted)" }}>
               {currentTrack.artist}
-              {sourceTag && <span className="ml-1.5 px-1.5 py-0 rounded text-[9px]" style={{ backgroundColor: "var(--mq-card)", opacity: 0.8 }}>{sourceTag}</span>}
               {modeLabel}
-              {resolvingYT && <span style={{ color: "var(--mq-accent)", marginLeft: 6, fontSize: 10 }}>Поиск...</span>}
               {playError && <span className="ml-1.5 px-1.5 py-0 rounded text-[9px]" style={{ backgroundColor: "rgba(239,68,68,0.2)", color: "#ef4444" }}>Ошибка</span>}
             </p>
           </div>
@@ -538,7 +437,7 @@ export default function PlayerBar() {
             className="w-10 h-10 lg:w-12 lg:h-12 rounded-full flex items-center justify-center"
             style={{ backgroundColor: "var(--mq-accent)", color: "var(--mq-text)", boxShadow: isPlaying ? "0 0 20px var(--mq-glow)" : "none" }}>
             <AnimatePresence mode="wait">
-              {(isLoadingTrack || resolvingYT) ? (
+              {isLoadingTrack ? (
                 <motion.div key="loading" initial={{ opacity: 0, scale: 0 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0 }}>
                   <Loader2 className="w-5 h-5 animate-spin" />
                 </motion.div>
@@ -623,15 +522,25 @@ export default function PlayerBar() {
           <button onClick={() => setVolume(volume > 0 ? 0 : 70)} className="hidden md:block" style={{ color: "var(--mq-text-muted)" }}>
             {volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
           </button>
-          <div ref={volumeRef} onClick={handleVolumeClick} className="hidden md:block w-20 h-1.5 rounded-full cursor-pointer"
-            style={{ backgroundColor: "var(--mq-border)" }}>
+          <div
+            ref={volumeRef}
+            onClick={handleVolumeClick}
+            onWheel={handleVolumeWheel}
+            className="hidden md:block w-24 h-1.5 rounded-full cursor-pointer"
+            style={{ backgroundColor: "var(--mq-border)" }}
+          >
             <div className="h-full rounded-full" style={{ width: `${volume}%`, backgroundColor: "var(--mq-accent)" }} />
           </div>
+          <span className="text-[10px] hidden md:block w-8 text-right" style={{ color: "var(--mq-text-muted)" }}>{volume}%</span>
         </div>
       </div>
 
-      {/* Hidden YouTube player container */}
-      <div ref={ytContainerRef} style={{ position: "absolute", width: "1px", height: "1px", overflow: "hidden", opacity: 0, pointerEvents: "none" }} />
+      {/* Audio visualization bar */}
+      <canvas
+        ref={canvasRef}
+        className="w-full pointer-events-none"
+        style={{ height: 16, opacity: isPlaying ? 0.8 : 0 }}
+      />
     </motion.div>
   );
 }

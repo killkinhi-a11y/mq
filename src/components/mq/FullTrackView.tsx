@@ -18,12 +18,11 @@ export default function FullTrackView() {
     isFullTrackViewOpen, setFullTrackViewOpen, animationsEnabled,
     toggleLike, toggleDislike, isTrackLiked, isTrackDisliked,
     similarTracks, setSimilarTracks, similarTracksLoading, setSimilarTracksLoading,
-    playbackMode, playTrack, queue,
+    playTrack, queue,
   } = useAppStore();
 
   const progressRef = useRef<HTMLDivElement>(null);
   const volumeRef = useRef<HTMLDivElement>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showSimilar, setShowSimilar] = useState(false);
 
@@ -64,7 +63,7 @@ export default function FullTrackView() {
     return () => { cancelled = true; };
   }, [currentTrack, showSimilar, setSimilarTracks, setSimilarTracksLoading]);
 
-  // Progress drag (same fix as PlayerBar)
+  // Progress drag
   const seekToPosition = useCallback((clientX: number) => {
     if (!progressRef.current || !duration) return;
     const rect = progressRef.current.getBoundingClientRect();
@@ -109,12 +108,18 @@ export default function FullTrackView() {
     setVolume(Math.max(0, Math.min(100, (x / rect.width) * 100)));
   }, [setVolume]);
 
+  // Mouse wheel volume control
+  const handleVolumeWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -5 : 5;
+    setVolume(Math.max(0, Math.min(100, volume + delta)));
+  }, [volume, setVolume]);
+
   if (!currentTrack || !isFullTrackViewOpen) return null;
 
   const progressPct = duration > 0 ? (progress / duration) * 100 : 0;
   const isLiked = currentTrack ? isTrackLiked(currentTrack.id) : false;
   const isDisliked = currentTrack ? isTrackDisliked(currentTrack.id) : false;
-  const sourceTag = currentTrack.source === "audius" ? "Audius" : currentTrack.source === "saavn" ? "Saavn" : currentTrack.source === "deezer" ? "Deezer" : currentTrack.source === "itunes" ? "iTunes" : "";
 
   return (
     <AnimatePresence>
@@ -143,7 +148,7 @@ export default function FullTrackView() {
             Сейчас играет
           </span>
           <span className="text-xs px-2 py-1 rounded-full" style={{ backgroundColor: "var(--mq-card)", color: "var(--mq-text-muted)", border: "1px solid var(--mq-border)" }}>
-            {sourceTag}
+            SoundCloud
           </span>
         </div>
 
@@ -216,8 +221,11 @@ export default function FullTrackView() {
             </motion.button>
           </div>
 
-          {/* Volume */}
-          <div className="flex items-center gap-3 w-full max-w-xs mb-6">
+          {/* Volume with mouse wheel */}
+          <div
+            className="flex items-center gap-3 w-full max-w-xs mb-6"
+            onWheel={handleVolumeWheel}
+          >
             <button onClick={() => setVolume(volume > 0 ? 0 : 70)} style={{ color: "var(--mq-text-muted)" }}>
               {volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </button>
@@ -225,6 +233,7 @@ export default function FullTrackView() {
               className="flex-1 h-1.5 rounded-full cursor-pointer" style={{ backgroundColor: "var(--mq-border)" }}>
               <div className="h-full rounded-full" style={{ width: `${volume}%`, backgroundColor: "var(--mq-accent)" }} />
             </div>
+            <span className="text-[10px] w-8 text-right" style={{ color: "var(--mq-text-muted)" }}>{volume}%</span>
           </div>
 
           {/* Like / Dislike / Similar buttons */}

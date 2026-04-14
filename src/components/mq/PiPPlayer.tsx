@@ -12,9 +12,10 @@ export default function PiPPlayer() {
     progress, duration,
   } = useAppStore();
 
-  const dragRef = useRef({ dragging: false, startX: 0, startY: 0, posX: 0, posY: 0 });
   const [pos, setPos] = useState({ x: 16, y: 16 });
   const [minimized, setMinimized] = useState(false);
+  const dragOffset = useRef({ x: 0, y: 0 });
+  const isDragging = useRef(false);
 
   useEffect(() => {
     if (isPiPActive) {
@@ -23,63 +24,7 @@ export default function PiPPlayer() {
     }
   }, [isPiPActive]);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    dragRef.current = {
-      dragging: true,
-      startX: e.clientX - pos.x,
-      startY: e.clientY - pos.y,
-      posX: pos.x,
-      posY: pos.y,
-    };
-    const onMove = (ev: MouseEvent) => {
-      if (!dragRef.current.dragging) return;
-      const newX = ev.clientX - dragRef.current.startX;
-      const newY = ev.clientY - dragRef.current.startY;
-      const maxX = window.innerWidth - (minimized ? 56 : 320);
-      const maxY = window.innerHeight - (minimized ? 56 : 80);
-      setPos({
-        x: Math.max(0, Math.min(newX, maxX)),
-        y: Math.max(0, Math.min(newY, maxY)),
-      });
-    };
-    const onUp = () => {
-      dragRef.current.dragging = false;
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-    };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  }, [pos, minimized]);
-
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    const touch = e.touches[0];
-    dragRef.current = {
-      dragging: true,
-      startX: touch.clientX - pos.x,
-      startY: touch.clientY - pos.y,
-      posX: pos.x,
-      posY: pos.y,
-    };
-    const onMove = (ev: TouchEvent) => {
-      if (!dragRef.current.dragging) return;
-      const t = ev.touches[0];
-      const maxX = window.innerWidth - (minimized ? 56 : 320);
-      const maxY = window.innerHeight - (minimized ? 56 : 80);
-      setPos({
-        x: Math.max(0, Math.min(t.clientX - dragRef.current.startX, maxX)),
-        y: Math.max(0, Math.min(t.clientY - dragRef.current.startY, maxY)),
-      });
-    };
-    const onEnd = () => {
-      dragRef.current.dragging = false;
-      document.removeEventListener("touchmove", onMove);
-      document.removeEventListener("touchend", onEnd);
-    };
-    document.addEventListener("touchmove", onMove, { passive: false });
-    document.addEventListener("touchend", onEnd);
-  }, [pos, minimized]);
-
+  // Update progress from store (synced via timeupdate in PlayerBar)
   const progressPct = duration > 0 ? (progress / duration) * 100 : 0;
 
   if (!isPiPActive || !currentTrack) return null;
@@ -89,25 +34,65 @@ export default function PiPPlayer() {
     useAppStore.getState().setFullTrackViewOpen(true);
   };
 
+  const handleDragStart = useCallback((clientX: number, clientY: number) => {
+    isDragging.current = true;
+    dragOffset.current = {
+      x: clientX - pos.x,
+      y: clientY - pos.y,
+    };
+
+    const onMove = (cx: number, cy: number) => {
+      if (!isDragging.current) return;
+      const w = minimized ? 60 : 330;
+      const h = minimized ? 60 : 110;
+      const newX = Math.max(0, Math.min(cx - dragOffset.current.x, window.innerWidth - w));
+      const newY = Math.max(0, Math.min(cy - dragOffset.current.y, window.innerHeight - h));
+      setPos({ x: newX, y: newY });
+    };
+
+    const onMouseMove = (ev: MouseEvent) => onMove(ev.clientX, ev.clientY);
+    const onTouchMove = (ev: TouchEvent) => {
+      ev.preventDefault();
+      onMove(ev.touches[0].clientX, ev.touches[0].clientY);
+    };
+    const onEnd = () => {
+      isDragging.current = false;
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onEnd);
+      document.removeEventListener("touchmove", onTouchMove);
+      document.removeEventListener("touchend", onEnd);
+    };
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onEnd);
+    document.addEventListener("touchmove", onTouchMove, { passive: false });
+    document.addEventListener("touchend", onEnd);
+  }, [pos, minimized]);
+
+  const w = minimized ? 60 : 330;
+  const h = minimized ? 60 : 110;
+
   return (
     <AnimatePresence>
       <motion.div
-        initial={{ opacity: 0, scale: 0.8, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.8, y: 20 }}
+        initial={{ opacity: 0, scale: 0.7 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.7 }}
         transition={{ type: "spring", stiffness: 300, damping: 25 }}
         style={{
           position: "fixed",
           left: pos.x,
           top: pos.y,
           zIndex: 9999,
-          width: minimized ? 56 : 320,
+          width: w,
+          height: h,
           borderRadius: 16,
           overflow: "hidden",
           cursor: "default",
           userSelect: "none",
         }}
       >
+        {/* Glow border */}
         <div
           style={{
             position: "absolute",
@@ -120,10 +105,12 @@ export default function PiPPlayer() {
           }}
         />
         <div
-          onMouseDown={handleMouseDown}
-          onTouchStart={handleTouchStart}
+          onMouseDown={(e) => handleDragStart(e.clientX, e.clientY)}
+          onTouchStart={(e) => handleDragStart(e.touches[0].clientX, e.touches[0].clientY)}
           style={{
             position: "relative",
+            width: "100%",
+            height: "100%",
             backgroundColor: "var(--mq-card)",
             border: "1px solid var(--mq-border)",
             borderRadius: 16,
@@ -132,12 +119,12 @@ export default function PiPPlayer() {
           }}
         >
           {minimized ? (
-            <div style={{ width: 56, height: 56, position: "relative" }}>
+            <div style={{ width: 60, height: 60, position: "relative" }}>
               {currentTrack.cover ? (
-                <img src={currentTrack.cover} alt="" style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 16 }} />
+                <img src={currentTrack.cover} alt="" style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 16 }} />
               ) : (
-                <div style={{ width: 56, height: 56, borderRadius: 16, backgroundColor: "var(--mq-accent)", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0.6 }}>
-                  <Music size={20} style={{ color: "var(--mq-text)" }} />
+                <div style={{ width: 60, height: 60, borderRadius: 16, backgroundColor: "var(--mq-accent)", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0.6 }}>
+                  <Music size={22} style={{ color: "var(--mq-text)" }} />
                 </div>
               )}
               {isPlaying && (
@@ -152,11 +139,13 @@ export default function PiPPlayer() {
               </button>
             </div>
           ) : (
-            <div style={{ width: 320 }}>
-              <div style={{ display: "flex", justifyContent: "center", padding: "8px 0 4px", cursor: "grab" }}>
+            <div style={{ width: 330 }}>
+              {/* Drag handle */}
+              <div style={{ display: "flex", justifyContent: "center", padding: "6px 0 4px", cursor: "grab" }}>
                 <div style={{ width: 32, height: 4, borderRadius: 2, backgroundColor: "var(--mq-border)", opacity: 0.6 }} />
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 12px 8px" }}>
+              {/* Content */}
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "2px 12px 6px" }}>
                 <div onClick={openFullView} style={{ cursor: "pointer", flexShrink: 0 }}>
                   {currentTrack.cover ? (
                     <img src={currentTrack.cover} alt="" style={{ width: 48, height: 48, borderRadius: 10, objectFit: "cover" }} />
@@ -182,10 +171,12 @@ export default function PiPPlayer() {
                   </button>
                 </div>
               </div>
-              <div style={{ height: 3, backgroundColor: "rgba(255,255,255,0.08)", position: "relative", margin: "0 12px 8px", borderRadius: 2 }}>
+              {/* Progress bar */}
+              <div style={{ height: 3, backgroundColor: "rgba(255,255,255,0.08)", position: "relative", margin: "0 12px 6px", borderRadius: 2 }}>
                 <div style={{ height: "100%", width: progressPct + "%", backgroundColor: "var(--mq-accent)", borderRadius: 2, transition: "width 0.3s linear" }} />
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "0 12px 10px", fontSize: 9, color: "var(--mq-text-muted)" }}>
+              {/* Time and branding */}
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "0 12px 8px", fontSize: 9, color: "var(--mq-text-muted)" }}>
                 <span>{formatDuration(Math.floor(progress))}</span>
                 <span style={{ color: "var(--mq-accent)", fontSize: 8, opacity: 0.7 }}>MQ Player</span>
                 <span>{formatDuration(Math.floor(duration))}</span>

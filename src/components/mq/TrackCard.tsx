@@ -55,7 +55,7 @@ export default function TrackCard({ track, index = 0 }: TrackCardProps) {
     ? { initial: { opacity: 0, y: 20 }, animate: { opacity: 1, y: 0 }, transition: { delay: index * 0.03 } }
     : {};
 
-  const sourceTag = track.source === "audius" ? "Audius" : track.source === "saavn" ? "Saavn" : track.source === "deezer" ? "Deezer" : track.source === "itunes" ? "iTunes" : "";
+  const sourceTag = track.scIsFull ? "SC Полный" : "SC Превью";
 
   return (
     <>
