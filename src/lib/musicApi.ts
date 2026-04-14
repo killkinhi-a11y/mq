@@ -9,7 +9,10 @@ export interface Track {
   audioUrl: string;
   previewUrl?: string;
   youtubeId?: string;
-  source: "deezer" | "youtube" | "itunes" | "saavn" | "audius";
+  source: "deezer" | "youtube" | "itunes" | "saavn" | "audius" | "soundcloud";
+  scTrackId?: number;
+  scStreamPolicy?: string;
+  scIsFull?: boolean;
 }
 
 export interface Playlist {

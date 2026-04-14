@@ -24,6 +24,18 @@ async function resolveYouTubeId(title: string, artist: string): Promise<string |
   }
 }
 
+async function resolveSoundCloudStream(scTrackId: number): Promise<{ url: string; isPreview: boolean; duration: number; fullDuration: number } | null> {
+  try {
+    const res = await fetch(`/api/music/soundcloud/stream?trackId=${scTrackId}`, {
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 export default function PlayerBar() {
   const {
     currentTrack, isPlaying, volume, progress, duration,
@@ -126,9 +138,9 @@ export default function PlayerBar() {
   }, [sleepTimerActive, updateSleepTimer]);
 
   // ── Play with HTML5 audio (iTunes/Deezer preview) ──────
-  const playWithHtml5 = useCallback(() => {
-    const track = useAppStore.getState().currentTrack;
-    if (!track) return;
+  const playWithHtml5 = useCallback((track?: typeof currentTrack) => {
+    const t = track || useAppStore.getState().currentTrack;
+    if (!t) return;
 
     const audio = audioRef.current;
     if (!audio) return;
@@ -138,7 +150,7 @@ export default function PlayerBar() {
       try { ytPlayer.current.destroy(); } catch { /* ignore */ }
     }
 
-    let audioSrc = track.audioUrl || track.previewUrl || "";
+    let audioSrc = t.audioUrl || t.previewUrl || "";
     if (!audioSrc) {
       setIsLoadingTrack(false);
       setPlayError(true);
@@ -149,6 +161,8 @@ export default function PlayerBar() {
       setPlaybackMode("itunes");
     } else if (audioSrc.includes("deezer") || audioSrc.includes("cdns-preview")) {
       setPlaybackMode("deezer");
+    } else if (audioSrc.includes("sndcdn")) {
+      setPlaybackMode("soundcloud");
     } else {
       setPlaybackMode("itunes");
     }
@@ -156,6 +170,49 @@ export default function PlayerBar() {
     setUseYouTube(false);
     audio.pause();
     audio.src = audioSrc;
+    audio.load();
+    audio.play().catch(() => {
+      setPlayError(true);
+      setIsLoadingTrack(false);
+    });
+  }, [setPlaybackMode]);
+
+  // ── Play with SoundCloud stream ─────────────────────────
+  const playWithSoundCloud = useCallback(async (scTrackId: number, track?: typeof currentTrack) => {
+    const t = track || useAppStore.getState().currentTrack;
+    if (!t) return;
+
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    // Stop YouTube if running
+    if (ytPlayer.current) {
+      try { ytPlayer.current.destroy(); } catch { /* ignore */ }
+    }
+
+    setUseYouTube(false);
+    setPlaybackMode("soundcloud");
+
+    const stream = await resolveSoundCloudStream(scTrackId);
+    if (!stream || !stream.url) {
+      // Fallback to YouTube
+      console.warn("[PlayerBar] SoundCloud stream failed, trying YouTube");
+      const ytId = await resolveYouTubeId(t.title, t.artist);
+      if (ytId) {
+        const state = useAppStore.getState();
+        const updatedTrack = { ...t, youtubeId: ytId };
+        const newQueue = state.queue.map((tr) => tr.id === t.id ? updatedTrack : tr);
+        useAppStore.setState({ queue: newQueue, currentTrack: updatedTrack });
+        // Will re-trigger the effect with the new youtubeId
+        return;
+      }
+      setPlayError(true);
+      setIsLoadingTrack(false);
+      return;
+    }
+
+    audio.pause();
+    audio.src = stream.url;
     audio.load();
     audio.play().catch(() => {
       setPlayError(true);
@@ -186,7 +243,6 @@ export default function PlayerBar() {
         },
         onProgress: (currentTime, dur) => {
           if (!useAppStore.getState) return;
-          // Read isDragging from a ref approach
           setProgressRef.current(currentTime);
           if (dur && isFinite(dur)) setDurationRef.current(dur);
         },
@@ -242,23 +298,47 @@ export default function PlayerBar() {
         try { ytPlayer.current.destroy(); } catch { /* ignore */ }
       }
 
-      // If track already has a cached youtubeId, use it directly
+      // 1. If track has cached youtubeId, use YouTube directly
       if (currentTrack.youtubeId) {
         await playWithYouTube(currentTrack.youtubeId);
         setIsLoadingTrack(false);
         return;
       }
 
-      // Try to resolve YouTube videoId in background
+      // 2. SoundCloud track — try stream first
+      if (currentTrack.source === "soundcloud" && currentTrack.scTrackId) {
+        if (currentTrack.scIsFull) {
+          // Full track available on SoundCloud
+          await playWithSoundCloud(currentTrack.scTrackId, currentTrack);
+          setIsLoadingTrack(false);
+          return;
+        }
+        // SNIP (30s preview) — try YouTube for full track
+        const ytId = await resolveYouTubeId(currentTrack.title, currentTrack.artist);
+        if (ytId) {
+          const state = useAppStore.getState();
+          const updatedTrack = { ...currentTrack, youtubeId: ytId };
+          const newQueue = state.queue.map((t) =>
+            t.id === currentTrack.id ? updatedTrack : t
+          );
+          useAppStore.setState({ queue: newQueue, currentTrack: updatedTrack });
+          setIsLoadingTrack(false);
+          return;
+        }
+        // No YouTube found — play SC preview
+        await playWithSoundCloud(currentTrack.scTrackId, currentTrack);
+        setIsLoadingTrack(false);
+        return;
+      }
+
+      // 3. Try to resolve YouTube videoId for other sources
       setResolvingYT(true);
       const ytId = await resolveYouTubeId(currentTrack.title, currentTrack.artist);
       setResolvingYT(false);
 
       if (ytId) {
-        // Cache the youtubeId on the track object in the store
         const state = useAppStore.getState();
         const updatedTrack = { ...currentTrack, youtubeId: ytId };
-        // Update in queue
         const newQueue = state.queue.map((t) =>
           t.id === currentTrack.id ? updatedTrack : t
         );
@@ -368,6 +448,12 @@ export default function PlayerBar() {
     if (playbackMode === "youtube") {
       return <span style={{ color: "#ff4444", marginLeft: 6, fontSize: 10 }}>&#9654; Полный трек</span>;
     }
+    if (playbackMode === "soundcloud" && currentTrack.scIsFull) {
+      return <span style={{ color: "#ff5500", marginLeft: 6, fontSize: 10 }}>&#9654; Полный трек</span>;
+    }
+    if (playbackMode === "soundcloud" && !currentTrack.scIsFull) {
+      return <span style={{ color: "var(--mq-text-muted)", marginLeft: 6, fontSize: 10 }}>Превью 30с</span>;
+    }
     if (playbackMode === "itunes" || playbackMode === "deezer") {
       return <span style={{ color: "var(--mq-text-muted)", marginLeft: 6, fontSize: 10 }}>Превью 30с</span>;
     }
@@ -375,7 +461,9 @@ export default function PlayerBar() {
   })();
 
   const sourceTag = playbackMode === "youtube" ? "YouTube"
+    : playbackMode === "soundcloud" ? "SoundCloud"
     : currentTrack.source === "itunes" ? "iTunes"
+    : currentTrack.source === "soundcloud" ? "SoundCloud"
     : currentTrack.source === "deezer" ? "Deezer"
     : "";
 

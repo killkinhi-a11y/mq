@@ -2,489 +2,199 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useAppStore } from "@/store/useAppStore";
-import { Play, Pause, Music, X } from "lucide-react";
-
-// Type declaration for Document Picture-in-Picture API
-declare global {
-  interface Window {
-    documentPictureInPicture?: {
-      requestWindow: (options?: {
-        width?: number;
-        height?: number;
-      }) => Promise<Window>;
-    };
-  }
-}
+import { Play, Pause, Music, X, Minimize2 } from "lucide-react";
+import { formatDuration } from "@/lib/musicApi";
+import { motion, AnimatePresence } from "framer-motion";
 
 export default function PiPPlayer() {
   const {
     currentTrack, isPlaying, togglePlay, isPiPActive, setPiPActive,
-    setFullTrackViewOpen, volume, progress, duration,
+    progress, duration,
   } = useAppStore();
 
-  const pipWindowRef = useRef<Window | null>(null);
-  const cleanupRef = useRef<(() => void) | null>(null);
+  const dragRef = useRef({ dragging: false, startX: 0, startY: 0, posX: 0, posY: 0 });
+  const [pos, setPos] = useState({ x: 16, y: 16 });
+  const [minimized, setMinimized] = useState(false);
 
-  const formatDuration = (seconds: number): string => {
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m}:${s.toString().padStart(2, "0")}`;
+  useEffect(() => {
+    if (isPiPActive) {
+      setPos({ x: 16, y: 16 });
+      setMinimized(false);
+    }
+  }, [isPiPActive]);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragRef.current = {
+      dragging: true,
+      startX: e.clientX - pos.x,
+      startY: e.clientY - pos.y,
+      posX: pos.x,
+      posY: pos.y,
+    };
+    const onMove = (ev: MouseEvent) => {
+      if (!dragRef.current.dragging) return;
+      const newX = ev.clientX - dragRef.current.startX;
+      const newY = ev.clientY - dragRef.current.startY;
+      const maxX = window.innerWidth - (minimized ? 56 : 320);
+      const maxY = window.innerHeight - (minimized ? 56 : 80);
+      setPos({
+        x: Math.max(0, Math.min(newX, maxX)),
+        y: Math.max(0, Math.min(newY, maxY)),
+      });
+    };
+    const onUp = () => {
+      dragRef.current.dragging = false;
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, [pos, minimized]);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    dragRef.current = {
+      dragging: true,
+      startX: touch.clientX - pos.x,
+      startY: touch.clientY - pos.y,
+      posX: pos.x,
+      posY: pos.y,
+    };
+    const onMove = (ev: TouchEvent) => {
+      if (!dragRef.current.dragging) return;
+      const t = ev.touches[0];
+      const maxX = window.innerWidth - (minimized ? 56 : 320);
+      const maxY = window.innerHeight - (minimized ? 56 : 80);
+      setPos({
+        x: Math.max(0, Math.min(t.clientX - dragRef.current.startX, maxX)),
+        y: Math.max(0, Math.min(t.clientY - dragRef.current.startY, maxY)),
+      });
+    };
+    const onEnd = () => {
+      dragRef.current.dragging = false;
+      document.removeEventListener("touchmove", onMove);
+      document.removeEventListener("touchend", onEnd);
+    };
+    document.addEventListener("touchmove", onMove, { passive: false });
+    document.addEventListener("touchend", onEnd);
+  }, [pos, minimized]);
+
+  const progressPct = duration > 0 ? (progress / duration) * 100 : 0;
+
+  if (!isPiPActive || !currentTrack) return null;
+
+  const openFullView = () => {
+    setPiPActive(false);
+    useAppStore.getState().setFullTrackViewOpen(true);
   };
 
-  // Close PiP window
-  const closePiP = useCallback(() => {
-    if (pipWindowRef.current) {
-      try {
-        pipWindowRef.current.close();
-      } catch {
-        // Window may already be closed
-      }
-      pipWindowRef.current = null;
-    }
-    if (cleanupRef.current) {
-      cleanupRef.current();
-      cleanupRef.current = null;
-    }
-    setPiPActive(false);
-  }, [setPiPActive]);
-
-  // Open PiP window using Document Picture-in-Picture API
-  const openPiPWindow = useCallback(async () => {
-    // Check if Document PiP API is available
-    if (!window.documentPictureInPicture) {
-      // Fallback: use regular popup window
-      openFallbackPiP();
-      return;
-    }
-
-    try {
-      const pipWindow = await window.documentPictureInPicture.requestWindow({
-        width: 340,
-        height: 100,
-      });
-
-      pipWindowRef.current = pipWindow;
-
-      // Style the PiP window
-      const style = pipWindow.document.createElement("style");
-      style.textContent = `
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-          background: #1a1a2e;
-          color: #fff;
-          overflow: hidden;
-          user-select: none;
-        }
-        .pip-container {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          padding: 10px 14px;
-          height: 100vh;
-        }
-        .pip-cover {
-          width: 56px;
-          height: 56px;
-          border-radius: 8px;
-          object-fit: cover;
-          cursor: pointer;
-          flex-shrink: 0;
-        }
-        .pip-cover-placeholder {
-          width: 56px;
-          height: 56px;
-          border-radius: 8px;
-          background: rgba(255,0,80,0.3);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
-          cursor: pointer;
-        }
-        .pip-info {
-          flex: 1;
-          min-width: 0;
-          cursor: pointer;
-        }
-        .pip-title {
-          font-size: 13px;
-          font-weight: 600;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-        .pip-artist {
-          font-size: 11px;
-          color: #888;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          margin-top: 2px;
-        }
-        .pip-controls {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          flex-shrink: 0;
-        }
-        .pip-btn {
-          width: 32px;
-          height: 32px;
-          border-radius: 50%;
-          border: none;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: white;
-        }
-        .pip-btn-play {
-          background: #ff0050;
-        }
-        .pip-btn-close {
-          background: rgba(255,255,255,0.1);
-        }
-        .pip-btn-close:hover {
-          background: rgba(255,255,255,0.2);
-        }
-        .pip-progress {
-          position: fixed;
-          bottom: 0;
-          left: 0;
-          right: 0;
-          height: 3px;
-          background: rgba(255,255,255,0.1);
-        }
-        .pip-progress-bar {
-          height: 100%;
-          background: #ff0050;
-          transition: width 0.3s linear;
-        }
-        .pip-time {
-          position: fixed;
-          bottom: 5px;
-          right: 8px;
-          font-size: 9px;
-          color: #666;
-        }
-        .pip-badge {
-          position: fixed;
-          bottom: 5px;
-          left: 8px;
-          font-size: 9px;
-          color: #4ade80;
-        }
-      `;
-      pipWindow.document.head.appendChild(style);
-
-      // Create the body content
-      const renderPiPContent = () => {
-        const state = useAppStore.getState();
-        const track = state.currentTrack;
-        const playing = state.isPlaying;
-        const prog = state.progress;
-        const dur = state.duration;
-
-        pipWindow.document.body.innerHTML = "";
-
-        const container = pipWindow.document.createElement("div");
-        container.className = "pip-container";
-
-        // Cover
-        const coverDiv = pipWindow.document.createElement("div");
-        coverDiv.className = track?.cover ? "" : "pip-cover-placeholder";
-        if (track?.cover) {
-          const img = pipWindow.document.createElement("img");
-          img.className = "pip-cover";
-          img.src = track.cover;
-          img.alt = "";
-          coverDiv.appendChild(img);
-        } else {
-          coverDiv.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`;
-        }
-        coverDiv.onclick = () => {
-          // Click cover to expand (navigate main window)
-          if (window.document.hidden) {
-            window.focus();
-          }
-          setPiPActive(false);
-          setFullTrackViewOpen(true);
-        };
-        container.appendChild(coverDiv);
-
-        // Info
-        const info = pipWindow.document.createElement("div");
-        info.className = "pip-info";
-        info.onclick = coverDiv.onclick;
-        info.innerHTML = `
-          <div class="pip-title">${track?.title || "Нет трека"}</div>
-          <div class="pip-artist">${track?.artist || ""}</div>
-        `;
-        container.appendChild(info);
-
-        // Controls
-        const controls = pipWindow.document.createElement("div");
-        controls.className = "pip-controls";
-
-        const playBtn = pipWindow.document.createElement("button");
-        playBtn.className = "pip-btn pip-btn-play";
-        playBtn.innerHTML = playing
-          ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="white"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>`
-          : `<svg width="14" height="14" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>`;
-        playBtn.onclick = (e) => {
-          e.stopPropagation();
-          useAppStore.getState().togglePlay();
-        };
-        controls.appendChild(playBtn);
-
-        const closeBtn = pipWindow.document.createElement("button");
-        closeBtn.className = "pip-btn pip-btn-close";
-        closeBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
-        closeBtn.onclick = (e) => {
-          e.stopPropagation();
-          closePiP();
-        };
-        controls.appendChild(closeBtn);
-
-        container.appendChild(controls);
-        pipWindow.document.body.appendChild(container);
-
-        // Progress bar
-        const progressContainer = pipWindow.document.createElement("div");
-        progressContainer.className = "pip-progress";
-        const progressBar = pipWindow.document.createElement("div");
-        progressBar.className = "pip-progress-bar";
-        const pct = dur > 0 ? (prog / dur) * 100 : 0;
-        progressBar.style.width = `${pct}%`;
-        progressContainer.appendChild(progressBar);
-        pipWindow.document.body.appendChild(progressContainer);
-
-        // Time
-        const timeEl = pipWindow.document.createElement("div");
-        timeEl.className = "pip-time";
-        timeEl.textContent = `${formatDuration(prog)} / ${formatDuration(dur)}`;
-        pipWindow.document.body.appendChild(timeEl);
-
-        // Badge
-        const badgeEl = pipWindow.document.createElement("div");
-        badgeEl.className = "pip-badge";
-        badgeEl.textContent = "\u25CF MQ Player";
-        pipWindow.document.body.appendChild(badgeEl);
-      };
-
-      // Initial render
-      renderPiPContent();
-
-      // Subscribe to store changes and update PiP window
-      const unsub = useAppStore.subscribe(() => {
-        if (!pipWindowRef.current || pipWindowRef.current.closed) {
-          unsub();
-          setPiPActive(false);
-          return;
-        }
-        renderPiPContent();
-      });
-
-      // Close handler
-      pipWindow.addEventListener("pagehide", () => {
-        unsub();
-        pipWindowRef.current = null;
-        setPiPActive(false);
-      });
-
-      cleanupRef.current = unsub;
-
-    } catch (err) {
-      console.warn("[PiP] Document PiP failed, falling back:", err);
-      openFallbackPiP();
-    }
-  }, [closePiP, setPiPActive, setFullTrackViewOpen]);
-
-  // Fallback: regular popup window
-  const openFallbackPiP = useCallback(() => {
-    const pipWin = window.open(
-      "",
-      "mq-pip",
-      "width=340,height=100,left=100,top=100,toolbar=no,location=no,menubar=no,status=no"
-    );
-
-    if (!pipWin) {
-      console.warn("[PiP] Popup blocked by browser");
-      setPiPActive(false);
-      return;
-    }
-
-    pipWindowRef.current = pipWin;
-
-    const style = pipWin.document.createElement("style");
-    style.textContent = `
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        background: #1a1a2e;
-        color: #fff;
-        overflow: hidden;
-        user-select: none;
-      }
-      .pip-container { display: flex; align-items: center; gap: 10px; padding: 10px 14px; height: 100vh; }
-      .pip-cover { width: 56px; height: 56px; border-radius: 8px; object-fit: cover; cursor: pointer; flex-shrink: 0; }
-      .pip-cover-placeholder { width: 56px; height: 56px; border-radius: 8px; background: rgba(255,0,80,0.3); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-      .pip-info { flex: 1; min-width: 0; cursor: pointer; }
-      .pip-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .pip-artist { font-size: 11px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
-      .pip-controls { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-      .pip-btn { width: 32px; height: 32px; border-radius: 50%; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; color: white; }
-      .pip-btn-play { background: #ff0050; }
-      .pip-btn-close { background: rgba(255,255,255,0.1); }
-      .pip-progress { position: fixed; bottom: 0; left: 0; right: 0; height: 3px; background: rgba(255,255,255,0.1); }
-      .pip-progress-bar { height: 100%; background: #ff0050; transition: width 0.3s linear; }
-      .pip-time { position: fixed; bottom: 5px; right: 8px; font-size: 9px; color: #666; }
-      .pip-badge { position: fixed; bottom: 5px; left: 8px; font-size: 9px; color: #4ade80; }
-    `;
-    pipWin.document.head.appendChild(style);
-
-    const renderPiPContent = () => {
-      const state = useAppStore.getState();
-      const track = state.currentTrack;
-      const playing = state.isPlaying;
-      const prog = state.progress;
-      const dur = state.duration;
-
-      if (pipWin.closed) return;
-
-      pipWin.document.body.innerHTML = "";
-
-      const container = pipWin.document.createElement("div");
-      container.className = "pip-container";
-
-      const coverDiv = pipWin.document.createElement("div");
-      if (track?.cover) {
-        coverDiv.innerHTML = `<img class="pip-cover" src="${track.cover}" alt="">`;
-      } else {
-        coverDiv.className = "pip-cover-placeholder";
-        coverDiv.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`;
-      }
-      coverDiv.onclick = () => {
-        if (window.document.hidden) window.focus();
-        closePiP();
-        setFullTrackViewOpen(true);
-      };
-      container.appendChild(coverDiv);
-
-      const info = pipWin.document.createElement("div");
-      info.className = "pip-info";
-      info.onclick = coverDiv.onclick;
-      info.innerHTML = `
-        <div class="pip-title">${track?.title || "Нет трека"}</div>
-        <div class="pip-artist">${track?.artist || ""}</div>
-      `;
-      container.appendChild(info);
-
-      const controls = pipWin.document.createElement("div");
-      controls.className = "pip-controls";
-
-      const playBtn = pipWin.document.createElement("button");
-      playBtn.className = "pip-btn pip-btn-play";
-      playBtn.innerHTML = playing
-        ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="white"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>`
-        : `<svg width="14" height="14" viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>`;
-      playBtn.onclick = (e) => {
-        e.stopPropagation();
-        useAppStore.getState().togglePlay();
-      };
-      controls.appendChild(playBtn);
-
-      const closeBtn = pipWin.document.createElement("button");
-      closeBtn.className = "pip-btn pip-btn-close";
-      closeBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
-      closeBtn.onclick = (e) => {
-        e.stopPropagation();
-        closePiP();
-      };
-      controls.appendChild(closeBtn);
-
-      container.appendChild(controls);
-      pipWin.document.body.appendChild(container);
-
-      const progressContainer = pipWin.document.createElement("div");
-      progressContainer.className = "pip-progress";
-      const progressBar = pipWin.document.createElement("div");
-      progressBar.className = "pip-progress-bar";
-      const pct = dur > 0 ? (prog / dur) * 100 : 0;
-      progressBar.style.width = `${pct}%`;
-      progressContainer.appendChild(progressBar);
-      pipWin.document.body.appendChild(progressContainer);
-
-      const timeEl = pipWin.document.createElement("div");
-      timeEl.className = "pip-time";
-      timeEl.textContent = `${formatDuration(prog)} / ${formatDuration(dur)}`;
-      pipWin.document.body.appendChild(timeEl);
-
-      const badgeEl = pipWin.document.createElement("div");
-      badgeEl.className = "pip-badge";
-      badgeEl.textContent = "\u25CF MQ Player";
-      pipWin.document.body.appendChild(badgeEl);
-    };
-
-    renderPiPContent();
-
-    const unsub = useAppStore.subscribe(() => {
-      if (pipWin.closed) {
-        unsub();
-        pipWindowRef.current = null;
-        setPiPActive(false);
-        return;
-      }
-      renderPiPContent();
-    });
-
-    const checkClosed = setInterval(() => {
-      if (pipWin.closed) {
-        clearInterval(checkClosed);
-        unsub();
-        pipWindowRef.current = null;
-        setPiPActive(false);
-      }
-    }, 1000);
-
-    cleanupRef.current = () => {
-      unsub();
-      clearInterval(checkClosed);
-    };
-  }, [closePiP, setPiPActive, setFullTrackViewOpen]);
-
-  // Handle PiP toggle
-  useEffect(() => {
-    if (isPiPActive && currentTrack) {
-      openPiPWindow();
-    } else if (!isPiPActive) {
-      closePiP();
-    }
-
-    return () => {
-      if (cleanupRef.current) {
-        cleanupRef.current();
-        cleanupRef.current = null;
-      }
-      if (pipWindowRef.current) {
-        try { pipWindowRef.current.close(); } catch { /* already closed */ }
-        pipWindowRef.current = null;
-      }
-    };
-  }, [isPiPActive]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (pipWindowRef.current) {
-        try { pipWindowRef.current.close(); } catch { /* already closed */ }
-        pipWindowRef.current = null;
-      }
-    };
-  }, []);
-
-  // This component no longer renders inline UI
-  // PiP is a separate window now
-  return null;
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.8, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.8, y: 20 }}
+        transition={{ type: "spring", stiffness: 300, damping: 25 }}
+        style={{
+          position: "fixed",
+          left: pos.x,
+          top: pos.y,
+          zIndex: 9999,
+          width: minimized ? 56 : 320,
+          borderRadius: 16,
+          overflow: "hidden",
+          cursor: "default",
+          userSelect: "none",
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            inset: -2,
+            borderRadius: 18,
+            background: "var(--mq-accent)",
+            opacity: 0.15,
+            filter: "blur(8px)",
+            pointerEvents: "none",
+          }}
+        />
+        <div
+          onMouseDown={handleMouseDown}
+          onTouchStart={handleTouchStart}
+          style={{
+            position: "relative",
+            backgroundColor: "var(--mq-card)",
+            border: "1px solid var(--mq-border)",
+            borderRadius: 16,
+            overflow: "hidden",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.4), 0 0 16px var(--mq-glow)",
+          }}
+        >
+          {minimized ? (
+            <div style={{ width: 56, height: 56, position: "relative" }}>
+              {currentTrack.cover ? (
+                <img src={currentTrack.cover} alt="" style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 16 }} />
+              ) : (
+                <div style={{ width: 56, height: 56, borderRadius: 16, backgroundColor: "var(--mq-accent)", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0.6 }}>
+                  <Music size={20} style={{ color: "var(--mq-text)" }} />
+                </div>
+              )}
+              {isPlaying && (
+                <div style={{ position: "absolute", bottom: 4, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 2 }}>
+                  {[0, 1, 2].map((i) => (
+                    <div key={i} style={{ width: 3, height: 8, borderRadius: 2, backgroundColor: "var(--mq-accent)", animation: "mqPipEq 0.6s ease-in-out " + (i * 0.15) + "s infinite alternate" }} />
+                  ))}
+                </div>
+              )}
+              <button onClick={(e) => { e.stopPropagation(); setPiPActive(false); }} style={{ position: "absolute", top: -4, right: -4, width: 18, height: 18, borderRadius: "50%", backgroundColor: "rgba(239,68,68,0.9)", border: "none", color: "white", fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, padding: 0 }}>
+                <X size={10} />
+              </button>
+            </div>
+          ) : (
+            <div style={{ width: 320 }}>
+              <div style={{ display: "flex", justifyContent: "center", padding: "8px 0 4px", cursor: "grab" }}>
+                <div style={{ width: 32, height: 4, borderRadius: 2, backgroundColor: "var(--mq-border)", opacity: 0.6 }} />
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 12px 8px" }}>
+                <div onClick={openFullView} style={{ cursor: "pointer", flexShrink: 0 }}>
+                  {currentTrack.cover ? (
+                    <img src={currentTrack.cover} alt="" style={{ width: 48, height: 48, borderRadius: 10, objectFit: "cover" }} />
+                  ) : (
+                    <div style={{ width: 48, height: 48, borderRadius: 10, backgroundColor: "var(--mq-accent)", opacity: 0.4, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <Music size={18} style={{ color: "var(--mq-text)" }} />
+                    </div>
+                  )}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: "var(--mq-text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", margin: 0, lineHeight: 1.3 }}>{currentTrack.title}</p>
+                  <p style={{ fontSize: 11, color: "var(--mq-text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", margin: "2px 0 0", lineHeight: 1.2 }}>{currentTrack.artist}</p>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                  <button onClick={(e) => { e.stopPropagation(); togglePlay(); }} style={{ width: 36, height: 36, borderRadius: "50%", border: "none", backgroundColor: "var(--mq-accent)", color: "var(--mq-text)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: isPlaying ? "0 0 12px var(--mq-glow)" : "none" }}>
+                    {isPlaying ? <Pause size={16} /> : <Play size={16} style={{ marginLeft: 2 }} />}
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); setMinimized(true); }} style={{ width: 28, height: 28, borderRadius: "50%", border: "none", backgroundColor: "rgba(255,255,255,0.08)", color: "var(--mq-text-muted)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <Minimize2 size={12} />
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); setPiPActive(false); }} style={{ width: 28, height: 28, borderRadius: "50%", border: "none", backgroundColor: "rgba(255,255,255,0.08)", color: "var(--mq-text-muted)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <X size={12} />
+                  </button>
+                </div>
+              </div>
+              <div style={{ height: 3, backgroundColor: "rgba(255,255,255,0.08)", position: "relative", margin: "0 12px 8px", borderRadius: 2 }}>
+                <div style={{ height: "100%", width: progressPct + "%", backgroundColor: "var(--mq-accent)", borderRadius: 2, transition: "width 0.3s linear" }} />
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "0 12px 10px", fontSize: 9, color: "var(--mq-text-muted)" }}>
+                <span>{formatDuration(Math.floor(progress))}</span>
+                <span style={{ color: "var(--mq-accent)", fontSize: 8, opacity: 0.7 }}>MQ Player</span>
+                <span>{formatDuration(Math.floor(duration))}</span>
+              </div>
+            </div>
+          )}
+        </div>
+        <style>{"@keyframes mqPipEq{0%{height:4px}100%{height:14px}}"}</style>
+      </motion.div>
+    </AnimatePresence>
+  );
 }
