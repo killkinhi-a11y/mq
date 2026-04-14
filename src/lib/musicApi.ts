@@ -8,6 +8,7 @@ export interface Track {
   genre: string;
   audioUrl: string;
   previewUrl?: string;
+  youtubeId?: string;
 }
 
 export interface Playlist {
