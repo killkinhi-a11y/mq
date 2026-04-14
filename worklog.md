@@ -233,3 +233,26 @@ Stage Summary:
 - Build: npm run build — successful
 - Server: HTTP 200 on port 3000
 - 5 issues addressed: like/dislike (UI fix), visualization (CORS root cause fix), popular tracks (better queries), themes (verified working), @ search (verified working)
+
+---
+Task ID: 5
+Agent: Main Agent
+Task: Bypass browser cache — rename /app to /play route
+
+Work Log:
+- Diagnosed that server is healthy (200 on /play) but browser serves disk-cached old HTML from /app
+- Renamed src/app/app/ → src/app/play/ (main app route)
+- Updated root page.tsx: redirect("/app") → redirect("/play")
+- Created src/app/app/page.tsx: redirects /app → /play (handles bookmarks)
+- Created src/app/app/error.tsx: auto-redirects errors to /play
+- Updated src/app/play/error.tsx: all /app references → /play
+- Updated middleware.ts: build header v5 → v6-play-route
+- Updated restart.sh: health check now hits /play (returns reliable 200)
+- Full clean rebuild (rm -rf .next + next build) — successful
+- Server running stable on port 3000, /play → 200, /app → 307 (redirect to /play)
+
+Stage Summary:
+- / → 307 redirect to /play
+- /play → 200 (main app, NUCLEAR CACHE-BUST v6 with mq-build-id check)
+- /app → 307 redirect to /play (handles old bookmarks)
+- Browser cache bypassed: /play was never visited before, so no cached version exists

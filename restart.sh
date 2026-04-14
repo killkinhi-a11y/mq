@@ -20,7 +20,8 @@ force_restart() {
   ( cd "$STANDALONE_DIR" && PORT=$PORT nohup node server.js </dev/null > "$LOG" 2>&1 & )
   sleep 5
 
-  local_code=$(curl -s --connect-timeout 5 -o /dev/null -w '%{http_code}' http://localhost:$PORT 2>/dev/null)
+  # Check /play (main app route) instead of / (which redirects)
+  local_code=$(curl -s --connect-timeout 5 -o /dev/null -w '%{http_code}' http://localhost:$PORT/play 2>/dev/null)
   if echo "$local_code" | grep -qE "^(200|307)$"; then
     echo "[restart] Server is up (port $PORT, code $local_code)"
   else
@@ -34,7 +35,7 @@ if [ "${1}" = "--force" ]; then
   exit $?
 fi
 
-# Otherwise, only restart if server is down
-if ! curl -s --connect-timeout 3 -o /dev/null -w '%{http_code}' http://localhost:$PORT 2>/dev/null | grep -qE "^(200|307)$"; then
+# Otherwise, only restart if server is down (check /play for reliable 200)
+if ! curl -s --connect-timeout 3 -o /dev/null -w '%{http_code}' http://localhost:$PORT/play 2>/dev/null | grep -qE "^200$"; then
   force_restart
 fi

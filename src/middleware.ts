@@ -16,7 +16,7 @@ export function middleware(request: NextRequest) {
   }
 
   // Add version header so we can verify the correct build is served
-  response.headers.set("X-MQ-Build", "v5-cachebust-" + Date.now().toString(36));
+  response.headers.set("X-MQ-Build", "v6-play-route-" + Date.now().toString(36));
 
   return response;
 }

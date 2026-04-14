@@ -40,14 +40,24 @@ export default function RootLayout({
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){
-              // === NUCLEAR CACHE-BUST v5 ===
-              // This script runs BEFORE React. Kills ALL old store keys and service workers.
+              // === NUCLEAR CACHE-BUST v6 ===
+              var BUILD_ID="mq-build-v6";
+              // 0. Check if user has stale cached page — force reload
+              var prevBuild=localStorage.getItem('mq-build-id');
+              if(prevBuild && prevBuild!==BUILD_ID){
+                // Stale build detected! Nuke everything and force fresh load
+                try{localStorage.clear()}catch(e){}
+                try{sessionStorage.clear()}catch(e){}
+                window.location.replace(window.location.pathname+'?_fresh='+Date.now());
+                return; // stop execution
+              }
+              localStorage.setItem('mq-build-id',BUILD_ID);
+              // 1. Clear ALL mq/zustand keys from any old format
               try{
-                // 1. Clear ALL localStorage keys that could be stale
                 var keysToRemove=[];
                 for(var i=0;i<localStorage.length;i++){
                   var k=localStorage.key(i);
-                  if(k && (k.indexOf('mq')>=0 || k.indexOf('MQ')>=0 || k.indexOf('zustand')>=0)){
+                  if(k && (k.indexOf('mq-store')>=0 || k.indexOf('mq-player-store')>=0 || k.indexOf('zustand')>=0)){
                     keysToRemove.push(k);
                   }
                 }
@@ -57,7 +67,7 @@ export default function RootLayout({
               }catch(e){}
               // 2. Clear sessionStorage
               try{sessionStorage.clear()}catch(e){}
-              // 3. Unregister ALL service workers (they cache old JS!)
+              // 3. Unregister ALL service workers
               if(navigator.serviceWorker){
                 navigator.serviceWorker.getRegistrations().then(function(regs){
                   regs.forEach(function(r){r.unregister()});

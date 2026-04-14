@@ -4,8 +4,7 @@ import { redirect } from "next/navigation";
 export const dynamic = "force-dynamic";
 
 export default function RootPage() {
-  // 302 redirect to /app — browsers never cache redirects
-  // This ensures the user always gets fresh content, even if they had
-  // the old / page cached for a year
-  redirect("/app");
+  // 302 redirect to /play — browsers never cache redirects
+  // Changed from /app to /play to bypass browser disk cache of old broken version
+  redirect("/play");
 }
