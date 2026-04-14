@@ -43,8 +43,8 @@ export default function TrackCard({ track, index = 0 }: TrackCardProps) {
 
   const handleLikeClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    toggleLike(track.id);
-  }, [track.id, toggleLike]);
+    toggleLike(track.id, track);
+  }, [track.id, track, toggleLike]);
 
   const handleDislikeClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();

@@ -10,6 +10,8 @@ import SearchView from "@/components/mq/SearchView";
 import MessengerView from "@/components/mq/MessengerView";
 import SettingsView from "@/components/mq/SettingsView";
 import ProfileView from "@/components/mq/ProfileView";
+import PlaylistView from "@/components/mq/PlaylistView";
+import HistoryView from "@/components/mq/HistoryView";
 import PlayerBar from "@/components/mq/PlayerBar";
 import FullTrackView from "@/components/mq/FullTrackView";
 import PiPPlayer from "@/components/mq/PiPPlayer";
@@ -60,6 +62,10 @@ export default function Home() {
         return <SettingsView />;
       case "profile":
         return <ProfileView />;
+      case "playlists":
+        return <PlaylistView />;
+      case "history":
+        return <HistoryView />;
       default:
         return <MainView />;
     }

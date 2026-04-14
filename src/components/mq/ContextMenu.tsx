@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Play, ListPlus, Heart, ThumbsDown, User, Copy, ListMusic } from "lucide-react";
+import { Play, ListPlus, Heart, ThumbsDown, User, Copy, ListMusic, Plus } from "lucide-react";
 import { useAppStore } from "@/store/useAppStore";
 import { searchTracks, type Track } from "@/lib/musicApi";
 
@@ -18,11 +18,13 @@ export default function ContextMenu({ track, x, y, onClose }: ContextMenuProps) 
     playTrack, queue, toggleLike, toggleDislike,
     isTrackLiked, isTrackDisliked, setSimilarTracks,
     setSimilarTracksLoading, setFullTrackViewOpen,
+    playlists, addToPlaylist, createPlaylist,
   } = useAppStore();
 
   const menuRef = useRef<HTMLDivElement>(null);
   const isLiked = isTrackLiked(track.id);
   const isDisliked = isTrackDisliked(track.id);
+  const [showPlaylistPicker, setShowPlaylistPicker] = useState(false);
 
   // Close on click outside
   useEffect(() => {
@@ -76,7 +78,7 @@ export default function ContextMenu({ track, x, y, onClose }: ContextMenuProps) 
   };
 
   const handleToggleLike = () => {
-    toggleLike(track.id);
+    toggleLike(track.id, track);
     onClose();
   };
 
@@ -90,13 +92,81 @@ export default function ContextMenu({ track, x, y, onClose }: ContextMenuProps) 
     onClose();
   };
 
+  const handleAddToPlaylist = (playlistId: string) => {
+    addToPlaylist(playlistId, track);
+    onClose();
+  };
+
+  const handleQuickCreateAndAdd = () => {
+    const name = track.artist;
+    createPlaylist(name);
+    // Get the newly created playlist id
+    const state = useAppStore.getState();
+ const newPl = state.playlists[state.playlists.length - 1];
+    if (newPl) addToPlaylist(newPl.id, track);
+    onClose();
+  };
+
+  if (showPlaylistPicker) {
+    return (
+      <AnimatePresence>
+        <motion.div
+          ref={menuRef}
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.95 }}
+          transition={{ duration: 0.15 }}
+          className="fixed z-[200] rounded-xl py-1 shadow-2xl min-w-[200px] max-w-[260px] max-h-[300px] overflow-y-auto"
+          style={{
+            left: Math.min(x, window.innerWidth - 260),
+            top: Math.min(y, window.innerHeight - 320),
+            backgroundColor: "var(--mq-card)",
+            border: "1px solid var(--mq-border)",
+            boxShadow: "0 10px 40px rgba(0,0,0,0.4)",
+          }}
+        >
+          <div className="px-3 py-2 text-xs font-semibold" style={{ color: "var(--mq-text-muted)" }}>
+            Добавить в плейлист
+          </div>
+          {playlists.map((pl) => (
+            <button
+              key={pl.id}
+              onClick={() => handleAddToPlaylist(pl.id)}
+              className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:opacity-80 transition-colors text-left"
+              style={{ color: "var(--mq-text)" }}
+            >
+              <ListMusic className="w-4 h-4 flex-shrink-0" style={{ color: "var(--mq-accent)" }} />
+              <span className="truncate">{pl.name}</span>
+              <span className="ml-auto text-xs" style={{ color: "var(--mq-text-muted)" }}>{pl.tracks.length}</span>
+            </button>
+          ))}
+          <div className="my-1" style={{ borderTop: "1px solid var(--mq-border)" }} />
+          <button
+            onClick={handleQuickCreateAndAdd}
+            className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:opacity-80 transition-colors text-left"
+            style={{ color: "var(--mq-accent)" }}
+          >
+            <Plus className="w-4 h-4" />
+            Новый плейлист
+          </button>
+          <button
+            onClick={() => { setShowPlaylistPicker(false); }}
+            className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:opacity-80 transition-colors text-left"
+            style={{ color: "var(--mq-text-muted)" }}
+          >
+            Назад
+          </button>
+        </motion.div>
+      </AnimatePresence>
+    );
+  }
+
   const items = [
     { icon: Play, label: "Воспроизвести", action: handlePlay, accent: false },
     { icon: ListPlus, label: "Добавить в очередь", action: handleAddToQueue, accent: false },
-    { icon: ListMusic, label: "Похожие треки", action: handleSimilar, accent: false },
+    { icon: ListMusic, label: "Добавить в плейлист", action: () => setShowPlaylistPicker(true), accent: false },
     { icon: Heart, label: isLiked ? "Убрать лайк" : "❤ Лайк", action: handleToggleLike, accent: isLiked },
     { icon: ThumbsDown, label: isDisliked ? "Убрать дизлайк" : "👎 Дизлайк", action: handleToggleDislike, accent: isDisliked },
-    { icon: User, label: "Открыть артиста", action: () => { onClose(); }, accent: false },
     { icon: Copy, label: "Копировать название", action: handleCopyTitle, accent: false },
   ];
 

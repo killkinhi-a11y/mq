@@ -332,7 +332,7 @@ export default function FullTrackView() {
 
           {/* Like / Dislike / Similar buttons */}
           <div className="flex items-center gap-4">
-            <motion.button whileTap={{ scale: 0.85 }} onClick={() => currentTrack && toggleLike(currentTrack.id)}
+            <motion.button whileTap={{ scale: 0.85 }} onClick={() => currentTrack && toggleLike(currentTrack.id, currentTrack)}
               className="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm"
               style={{
                 backgroundColor: isLiked ? "rgba(239,68,68,0.15)" : "var(--mq-card)",

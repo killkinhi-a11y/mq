@@ -1,9 +1,27 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { type Track, type Message as ChatMessage, mockContacts } from "@/lib/musicApi";
+import { type Track, type Message as ChatMessage } from "@/lib/musicApi";
 
-export type ViewType = "auth" | "main" | "search" | "messenger" | "settings" | "profile";
+export type ViewType = "auth" | "main" | "search" | "messenger" | "settings" | "profile" | "playlists" | "history";
 export type AuthStep = "login" | "register" | "confirm" | "confirmed";
+
+export interface UserPlaylist {
+  id: string;
+  name: string;
+  description: string;
+  cover: string;
+  tracks: Track[];
+  createdAt: number;
+}
+
+export interface HistoryEntry {
+  track: Track;
+  playedAt: number;
+}
+
+export interface SelectedPlaylist {
+  id: string;
+}
 
 interface AppState {
   // Auth
@@ -55,6 +73,7 @@ interface AppState {
   // Likes/Dislikes
   likedTrackIds: string[];
   dislikedTrackIds: string[];
+  likedTracksData: Track[];
 
   // PiP
   isPiPActive: boolean;
@@ -62,6 +81,13 @@ interface AppState {
   // Similar tracks panel
   similarTracks: Track[];
   similarTracksLoading: boolean;
+
+  // Playlists
+  playlists: UserPlaylist[];
+  selectedPlaylistId: string | null;
+
+  // History
+  history: HistoryEntry[];
 
   // Actions
   setAuth: (userId: string, username: string, email: string) => void;
@@ -107,7 +133,7 @@ interface AppState {
   setFullTrackViewOpen: (open: boolean) => void;
 
   // Like/Dislike actions
-  toggleLike: (trackId: string) => void;
+  toggleLike: (trackId: string, trackData?: Track) => void;
   toggleDislike: (trackId: string) => void;
   isTrackLiked: (trackId: string) => boolean;
   isTrackDisliked: (trackId: string) => boolean;
@@ -118,6 +144,18 @@ interface AppState {
   // Similar tracks actions
   setSimilarTracks: (tracks: Track[]) => void;
   setSimilarTracksLoading: (loading: boolean) => void;
+
+  // Playlist actions
+  createPlaylist: (name: string, description?: string) => void;
+  deletePlaylist: (playlistId: string) => void;
+  renamePlaylist: (playlistId: string, name: string) => void;
+  addToPlaylist: (playlistId: string, track: Track) => void;
+  removeFromPlaylist: (playlistId: string, trackId: string) => void;
+  setSelectedPlaylistId: (id: string | null) => void;
+
+  // History actions
+  addToHistory: (track: Track) => void;
+  clearHistory: () => void;
 
   // Reset
   reset: () => void;
@@ -158,9 +196,13 @@ const initialState = {
   isFullTrackViewOpen: false,
   likedTrackIds: [] as string[],
   dislikedTrackIds: [] as string[],
+  likedTracksData: [] as Track[],
   isPiPActive: false,
   similarTracks: [] as Track[],
   similarTracksLoading: false,
+  playlists: [] as UserPlaylist[],
+  selectedPlaylistId: null as string | null,
+  history: [] as HistoryEntry[],
 };
 
 export const useAppStore = create<AppState>()(
@@ -200,6 +242,8 @@ export const useAppStore = create<AppState>()(
           progress: 0,
           duration: track.duration,
         });
+        // Auto-add to history
+        get().addToHistory(track);
       },
 
       togglePlay: () => set((s) => ({ isPlaying: !s.isPlaying })),
@@ -231,6 +275,7 @@ export const useAppStore = create<AppState>()(
             duration: track.duration,
             isPlaying: true,
           });
+          get().addToHistory(track);
         }
       },
 
@@ -251,6 +296,7 @@ export const useAppStore = create<AppState>()(
             duration: track.duration,
             isPlaying: true,
           });
+          get().addToHistory(track);
         }
       },
 
@@ -311,26 +357,33 @@ export const useAppStore = create<AppState>()(
 
       setFullTrackViewOpen: (open) => set({ isFullTrackViewOpen: open }),
 
-      toggleLike: (trackId) => {
-        const { likedTrackIds, dislikedTrackIds } = get();
+      toggleLike: (trackId, trackData) => {
+        const { likedTrackIds, dislikedTrackIds, likedTracksData } = get();
         if (likedTrackIds.includes(trackId)) {
-          set({ likedTrackIds: likedTrackIds.filter((id) => id !== trackId) });
+          set({
+            likedTrackIds: likedTrackIds.filter((id) => id !== trackId),
+            likedTracksData: likedTracksData.filter((t) => t.id !== trackId),
+          });
         } else {
           set({
             likedTrackIds: [...likedTrackIds, trackId],
             dislikedTrackIds: dislikedTrackIds.filter((id) => id !== trackId),
+            likedTracksData: trackData
+              ? [...likedTracksData.filter((t) => t.id !== trackId), trackData]
+              : likedTracksData,
           });
         }
       },
 
       toggleDislike: (trackId) => {
-        const { dislikedTrackIds, likedTrackIds } = get();
+        const { dislikedTrackIds, likedTrackIds, likedTracksData } = get();
         if (dislikedTrackIds.includes(trackId)) {
           set({ dislikedTrackIds: dislikedTrackIds.filter((id) => id !== trackId) });
         } else {
           set({
             dislikedTrackIds: [...dislikedTrackIds, trackId],
             likedTrackIds: likedTrackIds.filter((id) => id !== trackId),
+            likedTracksData: likedTracksData.filter((t) => t.id !== trackId),
           });
         }
       },
@@ -343,6 +396,78 @@ export const useAppStore = create<AppState>()(
 
       setSimilarTracks: (tracks) => set({ similarTracks: tracks }),
       setSimilarTracksLoading: (loading) => set({ similarTracksLoading: loading }),
+
+      // ── Playlist actions ──
+      createPlaylist: (name, description = "") => {
+        const id = `pl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const newPlaylist: UserPlaylist = {
+          id,
+          name,
+          description,
+          cover: "",
+          tracks: [],
+          createdAt: Date.now(),
+        };
+        set((s) => ({ playlists: [...s.playlists, newPlaylist] }));
+      },
+
+      deletePlaylist: (playlistId) => {
+        set((s) => ({
+          playlists: s.playlists.filter((p) => p.id !== playlistId),
+          selectedPlaylistId: s.selectedPlaylistId === playlistId ? null : s.selectedPlaylistId,
+        }));
+      },
+
+      renamePlaylist: (playlistId, name) => {
+        set((s) => ({
+          playlists: s.playlists.map((p) =>
+            p.id === playlistId ? { ...p, name } : p
+          ),
+        }));
+      },
+
+      addToPlaylist: (playlistId, track) => {
+        set((s) => ({
+          playlists: s.playlists.map((p) => {
+            if (p.id !== playlistId) return p;
+            if (p.tracks.some((t) => t.id === track.id)) return p;
+            const updatedTracks = [...p.tracks, track];
+            return {
+              ...p,
+              tracks: updatedTracks,
+              cover: track.cover || p.cover,
+            };
+          }),
+        }));
+      },
+
+      removeFromPlaylist: (playlistId, trackId) => {
+        set((s) => ({
+          playlists: s.playlists.map((p) => {
+            if (p.id !== playlistId) return p;
+            return {
+              ...p,
+              tracks: p.tracks.filter((t) => t.id !== trackId),
+            };
+          }),
+        }));
+      },
+
+      setSelectedPlaylistId: (id) => set({ selectedPlaylistId: id }),
+
+      // ── History actions ──
+      addToHistory: (track) => {
+        set((s) => {
+          // Remove existing entry for same track
+          const filtered = s.history.filter((h) => h.track.id !== track.id);
+          // Add to front, keep max 200 entries
+          return {
+            history: [{ track, playedAt: Date.now() }, ...filtered].slice(0, 200),
+          };
+        });
+      },
+
+      clearHistory: () => set({ history: [] }),
 
       reset: () => set(initialState),
     }),
@@ -364,6 +489,9 @@ export const useAppStore = create<AppState>()(
         currentView: state.currentView,
         likedTrackIds: state.likedTrackIds,
         dislikedTrackIds: state.dislikedTrackIds,
+        likedTracksData: state.likedTracksData,
+        playlists: state.playlists,
+        history: state.history,
       }),
     }
   )

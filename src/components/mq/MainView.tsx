@@ -1,19 +1,65 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useAppStore } from "@/store/useAppStore";
 import { motion } from "framer-motion";
 import { type Track, getRecommendations } from "@/lib/musicApi";
 import TrackCard from "./TrackCard";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Heart, TrendingUp, Clock, Users, Music, Sparkles, RefreshCw } from "lucide-react";
+import { Heart, TrendingUp, Clock, ListMusic, Music, Sparkles, RefreshCw } from "lucide-react";
 
 export default function MainView() {
-  const { animationsEnabled, playTrack, likedTrackIds } = useAppStore();
+  const {
+    animationsEnabled, playTrack, likedTrackIds,
+    history, playlists,
+  } = useAppStore();
+
   const [trendingTracks, setTrendingTracks] = useState<Track[]>([]);
   const [recommendations, setRecommendations] = useState<Track[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRecLoading, setIsRecLoading] = useState(true);
+
+  // Build taste profile from liked tracks + history
+  const tasteProfile = useMemo(() => {
+    const { likedTracksData, history, likedTrackIds } = useAppStore.getState();
+
+    // Collect genres and artists from liked tracks
+    const genreCounts: Record<string, number> = {};
+    const artistCounts: Record<string, number> = {};
+
+    for (const track of likedTracksData) {
+      if (track.genre) {
+        genreCounts[track.genre] = (genreCounts[track.genre] || 0) + 2; // liked = weight 2
+      }
+      artistCounts[track.artist] = (artistCounts[track.artist] || 0) + 2;
+    }
+
+    // Add history weight
+    for (const entry of history.slice(0, 50)) {
+      const t = entry.track;
+      if (t.genre) {
+        genreCounts[t.genre] = (genreCounts[t.genre] || 0) + 1; // history = weight 1
+      }
+      artistCounts[t.artist] = (artistCounts[t.artist] || 0) + 1;
+    }
+
+    // Get top genres (max 3)
+    const topGenres = Object.entries(genreCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([genre]) => genre);
+
+    // Get top artists (max 2)
+    const topArtists = Object.entries(artistCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 2)
+      .map(([artist]) => artist);
+
+    // Build exclude IDs
+    const excludeIds = [...likedTrackIds, ...history.slice(0, 30).map(h => h.track.id)].join(",");
+
+    return { topGenres, topArtists, excludeIds };
+  }, [likedTrackIds, history]);
 
   // Fetch trending tracks
   useEffect(() => {
@@ -36,18 +82,30 @@ export default function MainView() {
     return () => { cancelled = true; };
   }, []);
 
-  // Fetch recommendations
+  // Fetch smart recommendations based on taste
   const loadRecommendations = useCallback(async () => {
     setIsRecLoading(true);
     try {
-      const tracks = await getRecommendations("random");
-      setRecommendations(tracks);
+      const { topGenres, topArtists, excludeIds } = tasteProfile;
+      const params = new URLSearchParams();
+
+      if (topGenres.length > 0 || topArtists.length > 0) {
+        if (topGenres.length > 0) params.set("genres", topGenres.join(","));
+        if (topArtists.length > 0) params.set("artists", topArtists.join(","));
+        if (excludeIds) params.set("excludeIds", excludeIds);
+      } else {
+        params.set("genre", "random");
+      }
+
+      const res = await fetch(`/api/music/recommendations?${params}`);
+      const data = await res.json();
+      setRecommendations(data.tracks || []);
     } catch {
       setRecommendations([]);
     } finally {
       setIsRecLoading(false);
     }
-  }, []);
+  }, [tasteProfile]);
 
   useEffect(() => {
     loadRecommendations();
@@ -61,6 +119,9 @@ export default function MainView() {
     if (recommendations.length > 0) playTrack(recommendations[0], recommendations);
   }, [recommendations, playTrack]);
 
+  const recentTracks = history.slice(0, 6);
+  const hasTasteData = tasteProfile.topGenres.length > 0 || tasteProfile.topArtists.length > 0;
+
   return (
     <div className="p-4 lg:p-6 pb-40 lg:pb-28 space-y-6">
       {/* Hero */}
@@ -72,7 +133,7 @@ export default function MainView() {
       >
         <div className="relative z-10">
           <h1 className="text-2xl lg:text-3xl font-bold mb-2" style={{ color: "var(--mq-text)" }}>
-            Добро пожаловать! 🎵
+            Добро пожаловать!
           </h1>
           <p className="text-sm lg:text-base" style={{ color: "var(--mq-text-muted)" }}>
             Откройте для себя музыку, которая поднимет настроение
@@ -85,8 +146,8 @@ export default function MainView() {
         {[
           { icon: Heart, label: "Избранное", value: `${likedTrackIds.length} треков` },
           { icon: TrendingUp, label: "Популярное", value: "Сейчас" },
-          { icon: Clock, label: "Недавно", value: "Сегодня" },
-          { icon: Users, label: "Друзья", value: "5 онлайн" },
+          { icon: Clock, label: "История", value: `${history.length} треков` },
+          { icon: ListMusic, label: "Плейлисты", value: `${playlists.length} шт.` },
         ].map((stat, i) => (
           <motion.div key={stat.label}
             initial={animationsEnabled ? { opacity: 0, y: 20 } : undefined}
@@ -106,14 +167,39 @@ export default function MainView() {
         ))}
       </div>
 
-      {/* Recommendations */}
+      {/* Recent history */}
+      {recentTracks.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Clock className="w-5 h-5" style={{ color: "var(--mq-accent)" }} />
+              <h2 className="text-lg font-bold" style={{ color: "var(--mq-text)" }}>
+                Недавно прослушанные
+              </h2>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {recentTracks.map((entry, i) => (
+              <TrackCard key={entry.track.id + "_" + entry.playedAt} track={entry.track} index={i} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Smart Recommendations */}
       <div>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Sparkles className="w-5 h-5" style={{ color: "var(--mq-accent)" }} />
             <h2 className="text-lg font-bold" style={{ color: "var(--mq-text)" }}>
-              Рекомендации для тебя
+              {hasTasteData ? "Рекомендации для вас" : "Откройте для себя"}
             </h2>
+            {hasTasteData && tasteProfile.topGenres.length > 0 && (
+              <span className="text-xs px-2 py-0.5 rounded-full"
+                style={{ backgroundColor: "var(--mq-input-bg)", color: "var(--mq-text-muted)" }}>
+                {tasteProfile.topGenres[0]}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             {recommendations.length > 0 && (
@@ -153,7 +239,9 @@ export default function MainView() {
         {!isRecLoading && recommendations.length === 0 && (
           <div className="text-center py-8">
             <Music className="w-10 h-10 mx-auto mb-2" style={{ color: "var(--mq-text-muted)", opacity: 0.3 }} />
-            <p className="text-sm" style={{ color: "var(--mq-text-muted)" }}>Не удалось загрузить рекомендации</p>
+            <p className="text-sm" style={{ color: "var(--mq-text-muted)" }}>
+              {hasTasteData ? "Не удалось загрузить рекомендации по вашему вкусу" : "Лайкайте треки и слушайте музыку, чтобы получить персональные рекомендации"}
+            </p>
           </div>
         )}
       </div>
