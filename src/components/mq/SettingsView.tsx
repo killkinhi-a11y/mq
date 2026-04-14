@@ -98,7 +98,7 @@ export default function SettingsView() {
                 backgroundColor: theme.background,
                 border: currentTheme === theme.id && !customAccent
                   ? `2px solid ${theme.accent}`
-                  : "2px solid transparent",
+                  : "1px solid var(--mq-border)",
                 boxShadow: currentTheme === theme.id && !customAccent
                   ? `0 0 12px ${theme.glowColor}`
                   : "none",

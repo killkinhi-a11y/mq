@@ -91,6 +91,8 @@ export async function GET(request: NextRequest) {
         if (seenIds.has(track.scTrackId)) continue;
         // Filter out tracks without artwork for better quality
         if (!track.cover) continue;
+        // Skip very short tracks
+        if (track.duration && track.duration < 30) continue;
         seenIds.add(track.scTrackId);
         allTracks.push(track);
       }

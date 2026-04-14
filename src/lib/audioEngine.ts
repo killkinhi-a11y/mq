@@ -2,20 +2,16 @@
  * Shared Audio Engine
  * Provides a single AudioContext, AnalyserNode, and source for the entire app.
  * PlayerBar creates the audio element; FullTrackView and PiPPlayer reuse the analyser.
- * 
- * Includes a CORS fallback: if the analyser returns all zeros (cross-origin audio),
- * a simulated frequency visualization is generated based on playback state.
+ *
+ * Since SoundCloud streams never include CORS headers, the AnalyserNode always
+ * returns zeros. We use a simulated frequency visualization that responds to
+ * playback state and provides a pleasing visual effect.
  */
 
 let _audioCtx: AudioContext | null = null;
 let _analyser: AnalyserNode | null = null;
 let _source: MediaElementAudioSourceNode | null = null;
 let _audio: HTMLAudioElement | null = null;
-let _corsBlocked = false;
-
-// Track whether we've already detected CORS blocking
-let _zerosCheckCount = 0;
-let _lastNonZeroFrame = 0;
 
 export function getAudioElement(): HTMLAudioElement {
   if (!_audio) {
@@ -34,8 +30,8 @@ export function getAudioContext(): AudioContext | null {
   return _audioCtx;
 }
 
-export function isCorsBlocked(): boolean {
-  return _corsBlocked;
+export function getAudioElementRef(): HTMLAudioElement | null {
+  return _audio;
 }
 
 /**
@@ -72,61 +68,59 @@ export function resumeAudioContext(): void {
 }
 
 /**
- * Get frequency data with CORS fallback.
- * If analyser returns all zeros for many frames (CORS blocked),
- * returns simulated data based on time.
+ * Get frequency data — always uses simulation since CORS blocks real data.
+ * Generates a dynamic, music-like visualization that responds to playback.
  */
 export function getFrequencyData(dataArray: Uint8Array): Uint8Array {
-  if (!_analyser || !dataArray.length) return dataArray;
+  if (!dataArray.length) return dataArray;
 
-  _analyser.getByteFrequencyData(dataArray);
-
-  // Check if we got real data or zeros
-  let hasNonZero = false;
-  const len = Math.min(dataArray.length, 32); // Check first 32 bins
-  for (let i = 0; i < len; i++) {
-    if (dataArray[i] > 0) {
-      hasNonZero = true;
-      break;
-    }
-  }
-
-  if (hasNonZero) {
-    _lastNonZeroFrame = Date.now();
-    _zerosCheckCount = 0;
-    _corsBlocked = false;
-    return dataArray;
-  }
-
-  // Accumulate zero frames
-  _zerosCheckCount++;
-
-  // After 15 consecutive zero frames (~250ms), assume CORS blocked
-  if (_zerosCheckCount > 15) {
-    _corsBlocked = true;
-  }
-
-  // If recently had non-zero data, don't simulate yet (might be silence)
-  if (Date.now() - _lastNonZeroFrame < 1500) {
-    return dataArray;
-  }
-
-  // Generate simulated visualization data
   const audio = _audio;
-  if (!audio || audio.paused || audio.ended) return dataArray;
+  if (!audio || audio.paused || audio.ended) {
+    // Fade out when paused
+    for (let i = 0; i < dataArray.length; i++) {
+      dataArray[i] = Math.floor(dataArray[i] * 0.85);
+    }
+    return dataArray;
+  }
 
-  const now = Date.now() / 1000;
+  const now = performance.now() / 1000;
   const bufLen = dataArray.length;
+  const progress = audio.duration > 0 ? audio.currentTime / audio.duration : 0;
+
+  // Use audio currentTime for phase variation so it looks different per track position
+  const t = now + audio.currentTime * 0.3;
 
   for (let i = 0; i < bufLen; i++) {
     const freq = i / bufLen;
-    // Create a pleasing frequency curve: bass heavy, treble light
-    const bass = Math.max(0, 1 - freq * 3) * (0.5 + 0.5 * Math.sin(now * 4 + i * 0.1));
-    const mid = Math.max(0, 1 - Math.abs(freq - 0.3) * 5) * (0.3 + 0.3 * Math.sin(now * 6 + i * 0.2));
-    const high = Math.max(0, freq - 0.5) * 2 * (0.2 + 0.2 * Math.sin(now * 8 + i * 0.3));
-    // Add some randomness
-    const noise = 0.15 * Math.sin(now * 13.7 + i * 1.7);
-    const value = Math.max(0, Math.min(255, (bass + mid + high + noise) * 200));
+
+    // Bass frequencies (0-0.15): strong, pulsing
+    const bassEnvelope = Math.max(0, 1 - freq * 7);
+    const bassPulse = 0.6 + 0.4 * Math.sin(t * 3.5 + Math.floor(t * 2.2) * 1.7);
+    const bass = bassEnvelope * bassPulse;
+
+    // Low-mid (0.1-0.35): medium presence
+    const lowMidEnv = Math.max(0, Math.min(1, (freq - 0.1) * 5)) * Math.max(0, 1 - (freq - 0.15) * 4);
+    const lowMid = lowMidEnv * (0.4 + 0.3 * Math.sin(t * 5.3 + i * 0.15));
+
+    // High-mid (0.3-0.6): moderate, varied
+    const highMidEnv = Math.max(0, Math.min(1, (freq - 0.3) * 4)) * Math.max(0, 1 - (freq - 0.4) * 5);
+    const highMid = highMidEnv * (0.3 + 0.25 * Math.sin(t * 7.1 + i * 0.25));
+
+    // Treble (0.6-1.0): subtle shimmer
+    const trebleEnv = Math.max(0, freq - 0.6) * 2.5;
+    const treble = trebleEnv * (0.15 + 0.15 * Math.sin(t * 11.3 + i * 0.4));
+
+    // Combine all bands
+    const combined = bass + lowMid + highMid + treble;
+
+    // Add subtle noise for organic feel
+    const noise = 0.06 * Math.sin(t * 17.3 + i * 2.1) + 0.04 * Math.sin(t * 23.7 + i * 3.3);
+
+    // Occasional "beat drops" — random peaks
+    const beatPhase = (t * 2.2) % 1;
+    const beat = beatPhase < 0.08 ? (1 - beatPhase / 0.08) * 0.3 * bassEnvelope : 0;
+
+    const value = Math.max(0, Math.min(255, (combined + noise + beat) * 220));
     dataArray[i] = Math.floor(value);
   }
 

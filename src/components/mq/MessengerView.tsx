@@ -77,6 +77,35 @@ export default function MessengerView() {
     return () => { cancelled = true; };
   }, [userId]);
 
+  // Debounced API search for sidebar search input
+  const [sidebarSearchResults, setSidebarSearchResults] = useState<FetchedUser[] | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+
+  useEffect(() => {
+    const q = searchContact.trim();
+    if (!q) {
+      setSidebarSearchResults(null);
+      setIsSearching(false);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const excludeParam = userId ? `&excludeId=${userId}` : "";
+        const searchQuery = q.startsWith("@") ? q.slice(1) : q;
+        const res = await fetch(`/api/users/search?q=${encodeURIComponent(searchQuery)}${excludeParam}`);
+        if (!res.ok) { setSidebarSearchResults([]); return; }
+        const data = await res.json();
+        setSidebarSearchResults(data.users || []);
+      } catch {
+        setSidebarSearchResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchContact, userId]);
+
   // New chat dialog: search API with query
   const [newChatUsers, setNewChatUsers] = useState<FetchedUser[]>([]);
   const [isLoadingNewChat, setIsLoadingNewChat] = useState(false);
@@ -102,8 +131,10 @@ export default function MessengerView() {
   }, [newChatSearch, userId]);
 
   // Convert fetched users to contact format for display
+  // When searching, use API results; otherwise use full user list
   const contactList = useMemo(() => {
-    return allUsers.map((u) => ({
+    const sourceUsers = sidebarSearchResults !== null ? sidebarSearchResults : allUsers;
+    return sourceUsers.map((u) => ({
       id: u.id,
       name: u.username,
       username: u.username,
@@ -111,7 +142,7 @@ export default function MessengerView() {
       online: false,
       lastSeen: new Date(u.createdAt).toLocaleDateString("ru-RU"),
     }));
-  }, [allUsers]);
+  }, [allUsers, sidebarSearchResults]);
 
   // When opening new chat, reset search
   useEffect(() => {
@@ -125,21 +156,15 @@ export default function MessengerView() {
     [selectedContactId, contacts, contactList]
   );
 
-  // Filter contacts: support @username search directly (local filter from fetched list)
+  // Filter contacts: when sidebarSearchResults is set (user is typing), use those directly
+  // (API already filtered). When no search query, show all users.
   const filteredContacts = useMemo(() => {
-    const q = searchContact.trim().toLowerCase();
-    if (!q) return contactList;
-    if (q.startsWith("@")) {
-      const usernameQuery = q.slice(1);
-      return contactList.filter((c) =>
-        c.username.toLowerCase().includes(usernameQuery)
-      );
+    // If API search results are available (user typed something), use them directly
+    if (sidebarSearchResults !== null) {
+      return contactList;
     }
-    return contactList.filter((c) =>
-      c.name.toLowerCase().includes(q) ||
-      c.username.toLowerCase().includes(q)
-    );
-  }, [searchContact, contactList]);
+    return contactList;
+  }, [contactList, sidebarSearchResults]);
 
   // Get last message per contact
   const getLastMessage = useCallback((contactId: string) => {
@@ -374,7 +399,7 @@ export default function MessengerView() {
         </div>
 
         <div className="flex-1 overflow-y-auto max-h-96 lg:max-h-none">
-          {isLoadingUsers ? (
+          {isLoadingUsers || isSearching ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="w-5 h-5 animate-spin" style={{ color: "var(--mq-text-muted)" }} />
             </div>
@@ -444,7 +469,7 @@ export default function MessengerView() {
           ) : (
             <div className="text-center py-8">
               <p className="text-sm" style={{ color: "var(--mq-text-muted)" }}>
-                {isLoadingUsers ? "Загрузка..." : "Нет пользователей"}
+                {isSearching ? "Поиск..." : searchContact.trim() ? "Пользователи не найдены" : "Нет пользователей"}
               </p>
             </div>
           )}

@@ -94,15 +94,15 @@ export default function TrackCard({ track, index = 0, queue }: TrackCardProps) {
           </p>
         </div>
 
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          {/* Like/Dislike icons */}
-          <button onClick={handleLikeClick} className="p-1 opacity-60 hover:opacity-100 transition-opacity"
-            style={{ color: isLiked ? "#ef4444" : "var(--mq-text-muted)" }}>
-            <Heart className="w-3.5 h-3.5" style={isLiked ? { fill: "#ef4444" } : {}} />
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {/* Like/Dislike icons — large touch targets, always visible */}
+          <button onPointerDown={(e) => e.stopPropagation()} onClick={handleLikeClick} className="p-2 rounded-lg transition-all duration-150 active:scale-90"
+            style={{ color: isLiked ? "#ef4444" : "var(--mq-text-muted)", backgroundColor: isLiked ? "rgba(239,68,68,0.12)" : "transparent", touchAction: "manipulation" }}>
+            <Heart className="w-4.5 h-4.5" style={isLiked ? { fill: "#ef4444" } : {}} />
           </button>
-          <button onClick={handleDislikeClick} className="p-1 opacity-60 hover:opacity-100 transition-opacity hidden sm:block"
-            style={{ color: isDisliked ? "#ef4444" : "var(--mq-text-muted)" }}>
-            <ThumbsDown className="w-3.5 h-3.5" style={isDisliked ? { fill: "#ef4444" } : {}} />
+          <button onPointerDown={(e) => e.stopPropagation()} onClick={handleDislikeClick} className="p-2 rounded-lg transition-all duration-150 active:scale-90"
+            style={{ color: isDisliked ? "#ef4444" : "var(--mq-text-muted)", backgroundColor: isDisliked ? "rgba(239,68,68,0.12)" : "transparent", touchAction: "manipulation" }}>
+            <ThumbsDown className="w-4.5 h-4.5" style={isDisliked ? { fill: "#ef4444" } : {}} />
           </button>
 
           {sourceTag && (
@@ -117,7 +117,7 @@ export default function TrackCard({ track, index = 0, queue }: TrackCardProps) {
           </span>
 
           {/* More button */}
-          <button onClick={handleMoreClick} className="p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+          <button onClick={handleMoreClick} className="p-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
             style={{ color: "var(--mq-text-muted)" }}>
             <MoreHorizontal className="w-4 h-4" />
           </button>
