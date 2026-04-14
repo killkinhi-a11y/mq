@@ -20,43 +20,39 @@ function setCache(key: string, data: unknown): void {
 }
 
 const trendingQueries = [
-  "top 50 worldwide",
-  "billboard hot 100",
-  "most played 2025",
-  "viral hits 2025",
-  "global top 50",
-  "best hip hop 2025",
-  "electronic dance music",
-  "pop music hits",
-  "indie alternative hits",
-  "r&b soul 2025",
-  "rock music playlist",
-  "lofi hip hop radio",
-  "deep house mix",
-  "latin music top",
-  "k-pop hits 2025",
-  "uk drill 2025",
-  "afrobeats mix",
-  "synthwave playlist",
-  "chill vibes 2025",
-  "workout motivation music",
-  "party mix 2025",
-  "acoustic covers popular",
-  "jazz lofi beats",
-  "drum and bass mix",
+  "new music",
+  "popular",
+  "viral",
+  "hit 2025",
+  "trending music",
+  "top hits",
+  "billboard",
+  "radio edit",
+  "official audio",
+  "best of",
+  "mix 2025",
+  "chart toppers",
+  "most played",
+  "music release",
+  "hot new music",
+  "spotify hits",
+  "music 2025",
+  "electronic music",
+  "hip hop 2025",
+  "pop music",
 ];
 
 export async function GET() {
-  const cacheKey = "trending:sc";
+  const cacheKey = "trending:sc:v2";
   const cached = getFromCache(cacheKey);
   if (cached) return NextResponse.json(cached);
 
   try {
-    // Pick 4 random trending queries for more variety
-    const shuffled = trendingQueries.sort(() => Math.random() - 0.5).slice(0, 4);
+    // Pick 5 random trending queries for variety
+    const shuffled = trendingQueries.sort(() => Math.random() - 0.5).slice(0, 5);
 
     const results = await Promise.allSettled(
-      shuffled.map((q) => searchSCTracks(q, 25))
+      shuffled.map((q) => searchSCTracks(q, 20))
     );
 
     const allTracks: ReturnType<typeof searchSCTracks> extends Promise<infer T> ? T : never = [];
@@ -66,27 +62,23 @@ export async function GET() {
       if (result.status !== "fulfilled") continue;
       for (const track of result.value) {
         if (seenIds.has(track.scTrackId)) continue;
-        if (!track.cover) continue; // Filter out tracks without artwork
-        // Skip very short tracks (< 30s) — likely intros/previews
-        if (track.duration && track.duration < 30) continue;
-        // Prefer full tracks over previews
+        if (!track.cover) continue; // Filter tracks without artwork
+        // Prefer full tracks over previews — give full tracks high score
         seenIds.add(track.scTrackId);
         allTracks.push(track);
       }
     }
 
-    // Sort: prefer full tracks, longer duration, then shuffle for variety
+    // Sort: full tracks first, then by duration (longer = better quality), then shuffle
     const sorted = allTracks.sort((a, b) => {
       if (a.scIsFull && !b.scIsFull) return -1;
       if (!a.scIsFull && b.scIsFull) return 1;
-      // Prefer longer tracks
-      const durA = a.duration || 0;
-      const durB = b.duration || 0;
-      if (durA > 180 && durB <= 180) return -1;
-      if (durB > 180 && durA <= 180) return 1;
+      // Among same type, prefer longer tracks
+      const durationDiff = (b.duration || 0) - (a.duration || 0);
+      if (Math.abs(durationDiff) > 30) return durationDiff > 0 ? -1 : 1;
       return Math.random() - 0.5;
     });
-    const responseData = { tracks: sorted.slice(0, 25) };
+    const responseData = { tracks: sorted.slice(0, 30) };
     setCache(cacheKey, responseData);
     return NextResponse.json(responseData);
   } catch {
