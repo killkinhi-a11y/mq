@@ -37,14 +37,40 @@ export default function RootLayout({
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){
+              // === NUCLEAR CACHE-BUST ===
+              // This script runs BEFORE React. It ensures no stale data can crash the app.
+              
+              // 1. Clear stale persisted store
               try{
                 var d=localStorage.getItem("mq-player-store");
                 if(d){
                   var p=JSON.parse(d);
                   var v=p&&p.version?p.version:0;
-                  if(v<3){localStorage.removeItem("mq-player-store")}
+                  if(v<3){
+                    localStorage.removeItem("mq-player-store");
+                    // Force fresh page load after clearing stale data
+                    window.location.replace(window.location.pathname+"?_f="+(Date.now()));
+                    return;
+                  }
                 }
-              }catch(e){try{localStorage.removeItem("mq-player-store")}catch(x){}}
+              }catch(e){
+                try{localStorage.removeItem("mq-player-store")}catch(x){}
+                window.location.replace(window.location.pathname+"?_f="+(Date.now()));
+                return;
+              }
+              
+              // 2. If we are running with a cache-bust param, clear ALL browser caches
+              if(window.location.search.indexOf("_f=")>-1){
+                try{sessionStorage.clear()}catch(e){}
+                if(window.caches){
+                  window.caches.keys().then(function(ks){
+                    ks.forEach(function(k){window.caches.delete(k)});
+                  });
+                }
+                // Clean up the URL (remove _f param) without creating a history entry
+                var cleanUrl=window.location.pathname+window.location.hash;
+                window.history.replaceState(null,"",cleanUrl);
+              }
             })()`,
           }}
         />
