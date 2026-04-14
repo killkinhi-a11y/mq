@@ -156,62 +156,24 @@
   background: var(--mq-text-muted);
 }
 
-/* Gothic theme styles */
-.gothic-theme {
-  --mq-bg: #0a0a12;
-  --mq-card: #15152a;
-  --mq-card-hover: #1e1e3a;
-  --mq-accent: #8b5cf6;
-  --mq-text: #e8e0f0;
-  --mq-text-muted: #7a7290;
-  --mq-border: #2a2a4a;
-  --mq-input-bg: #15152a;
-  --mq-player-bg: #0d0d1a;
-  --mq-nav-bg: #0a0a12ee;
-  --mq-gradient: radial-gradient(ellipse at 20% 50%, rgba(139,92,246,0.1) 0%, transparent 50%);
-  --mq-glow: rgba(139,92,246,0.3);
+/* Cyberpunk theme styles */
+.cyberpunk-theme * {
+  text-shadow: 0 0 8px rgba(255,42,109,0.15);
 }
 
-.gothic-theme * {
-  font-family: "Georgia", "Times New Roman", serif;
+.cyberpunk-theme .rounded-2xl,
+.cyberpunk-theme .rounded-xl {
+  box-shadow: inset 0 0 0 1px rgba(255,42,109,0.2), 0 0 12px rgba(255,42,109,0.05);
 }
 
-.gothic-theme .rounded-2xl,
-.gothic-theme .rounded-xl {
-  border-radius: 2px !important;
-  box-shadow: inset 0 0 0 1px var(--mq-border), 0 0 0 1px var(--mq-border);
+/* Synthwave theme styles */
+.synthwave-theme * {
+  text-shadow: 0 0 6px rgba(224,64,251,0.1);
 }
 
-/* Minecraft theme styles */
-.minecraft-theme {
-  --mq-bg: #2c1e0e;
-  --mq-card: #3d2b1a;
-  --mq-card-hover: #4a3520;
-  --mq-accent: #4ade80;
-  --mq-text: #e8dcc8;
-  --mq-text-muted: #9a8a6a;
-  --mq-border: #5a4a2a;
-  --mq-input-bg: #3d2b1a;
-  --mq-player-bg: #2a1c0c;
-  --mq-nav-bg: #2c1e0eee;
-  --mq-gradient: radial-gradient(ellipse at 20% 50%, rgba(74,222,128,0.06) 0%, transparent 50%);
-  --mq-glow: rgba(74,222,128,0.3);
-}
-
-.minecraft-theme * {
-  font-family: "Courier New", monospace;
-  image-rendering: pixelated;
-}
-
-.minecraft-theme .rounded-2xl,
-.minecraft-theme .rounded-xl,
-.minecraft-theme .rounded-lg,
-.minecraft-theme .rounded-full {
-  border-radius: 0 !important;
-}
-
-.minecraft-theme img {
-  image-rendering: pixelated;
+.synthwave-theme .rounded-2xl,
+.synthwave-theme .rounded-xl {
+  box-shadow: inset 0 0 0 1px rgba(224,64,251,0.15), 0 0 12px rgba(224,64,251,0.04);
 }
 
 /* Range input styling */

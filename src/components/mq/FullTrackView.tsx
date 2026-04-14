@@ -23,6 +23,8 @@ export default function FullTrackView() {
 
   const progressRef = useRef<HTMLDivElement>(null);
   const volumeRef = useRef<HTMLDivElement>(null);
+  const vizCanvasRef = useRef<HTMLCanvasElement>(null);
+  const vizAnimRef = useRef<number>(0);
   const [isDragging, setIsDragging] = useState(false);
   const [showSimilar, setShowSimilar] = useState(false);
 
@@ -115,6 +117,92 @@ export default function FullTrackView() {
     setVolume(Math.max(0, Math.min(100, volume + delta)));
   }, [volume, setVolume]);
 
+  // Circular audio visualization
+  useEffect(() => {
+    const canvas = vizCanvasRef.current;
+    if (!canvas || !isFullTrackViewOpen) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    // Find the audio element created by PlayerBar
+    const audio = document.querySelector("audio");
+    if (!audio) return;
+
+    let analyser: AnalyserNode | null = null;
+    let audioCtx: AudioContext | null = null;
+    let source: MediaElementAudioSourceNode | null = null;
+
+    const setupAnalyser = () => {
+      if (analyser) return;
+      try {
+        audioCtx = new AudioContext();
+        source = audioCtx.createMediaElementSource(audio);
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 128;
+        analyser.smoothingTimeConstant = 0.8;
+        source.connect(analyser);
+        analyser.connect(audioCtx.destination);
+      } catch {
+        // Already connected or not available
+      }
+    };
+
+    setupAnalyser();
+    if (!analyser) return;
+
+    const draw = () => {
+      vizAnimRef.current = requestAnimationFrame(draw);
+
+      const bufferLength = analyser.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+      analyser.getByteFrequencyData(dataArray);
+
+      const dpr = window.devicePixelRatio || 1;
+      const size = canvas.clientWidth;
+      if (canvas.width !== size * dpr || canvas.height !== size * dpr) {
+        canvas.width = size * dpr;
+        canvas.height = size * dpr;
+        ctx.scale(dpr, dpr);
+      }
+
+      ctx.clearRect(0, 0, size, size);
+
+      const centerX = size / 2;
+      const centerY = size / 2;
+      const innerRadius = size * 0.28;
+      const barCount = 48;
+      const accentColor = getComputedStyle(document.documentElement).getPropertyValue("--mq-accent").trim() || "#e03131";
+
+      for (let i = 0; i < barCount; i++) {
+        const dataIndex = Math.floor(i * bufferLength / barCount);
+        const value = dataArray[dataIndex] / 255;
+        const barHeight = Math.max(2, value * size * 0.12);
+
+        const angle = (i / barCount) * Math.PI * 2 - Math.PI / 2;
+        const x1 = centerX + Math.cos(angle) * innerRadius;
+        const y1 = centerY + Math.sin(angle) * innerRadius;
+        const x2 = centerX + Math.cos(angle) * (innerRadius + barHeight);
+        const y2 = centerY + Math.sin(angle) * (innerRadius + barHeight);
+
+        ctx.strokeStyle = accentColor;
+        ctx.globalAlpha = 0.3 + value * 0.7;
+        ctx.lineWidth = Math.max(1.5, (size / barCount) * 0.4);
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    };
+
+    draw();
+    return () => {
+      if (vizAnimRef.current) cancelAnimationFrame(vizAnimRef.current);
+    };
+  }, [isFullTrackViewOpen, currentTrack?.id, isPlaying]);
+
   if (!currentTrack || !isFullTrackViewOpen) return null;
 
   const progressPct = duration > 0 ? (progress / duration) * 100 : 0;
@@ -159,8 +247,14 @@ export default function FullTrackView() {
             initial={animationsEnabled ? { scale: 0.8, opacity: 0 } : undefined}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ type: "spring", stiffness: 200 }}
-            className="mb-8"
+            className="relative mb-8"
           >
+            {/* Circular audio visualization */}
+            <canvas
+              ref={vizCanvasRef}
+              className="absolute inset-0 w-full h-full pointer-events-none"
+              style={{ opacity: isPlaying ? 0.7 : 0, transition: "opacity 0.3s" }}
+            />
             <div className="w-64 h-64 sm:w-72 sm:h-72 lg:w-80 lg:h-80 rounded-2xl overflow-hidden shadow-2xl"
               style={{ boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
               <img src={currentTrack.cover} alt={currentTrack.album} className="w-full h-full object-cover" />

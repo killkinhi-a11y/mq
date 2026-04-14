@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useAppStore } from "@/store/useAppStore";
 import { motion } from "framer-motion";
 import { themes } from "@/lib/themes";
@@ -17,6 +17,14 @@ export default function SettingsView() {
   } = useAppStore();
 
   const [accentInput, setAccentInput] = useState(customAccent || "");
+  const volumeSectionRef = useRef<HTMLDivElement>(null);
+
+  // Mouse wheel volume control on the volume section
+  const handleVolumeWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -3 : 3;
+    setVolume(Math.max(0, Math.min(100, volume + delta)));
+  }, [volume, setVolume]);
 
   const themeList = Object.values(themes);
 
@@ -261,11 +269,13 @@ export default function SettingsView() {
 
       {/* Volume */}
       <motion.div
+        ref={volumeSectionRef}
         initial={anim ? { opacity: 0, y: 20 } : undefined}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.35 }}
         className="rounded-2xl p-4"
         style={{ backgroundColor: "var(--mq-card)", border: "1px solid var(--mq-border)" }}
+        onWheel={handleVolumeWheel}
       >
         <div className="flex items-center gap-2 mb-4">
           <Volume2 className="w-5 h-5" style={{ color: "var(--mq-accent)" }} />
@@ -274,6 +284,7 @@ export default function SettingsView() {
             {volume}%
           </span>
         </div>
+        <p className="text-xs mb-3" style={{ color: "var(--mq-text-muted)" }}>Колёсико мыши для регулировки</p>
         <input
           type="range"
           min="0"

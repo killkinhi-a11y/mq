@@ -101,6 +101,40 @@ export const themes: Record<string, ThemeConfig> = {
     glowColor: "rgba(52,211,153,0.3)",
     className: "aurora-theme",
   },
+  cyberpunk: {
+    id: "cyberpunk",
+    name: "Киберпанк",
+    background: "#0d0015",
+    card: "#1a0025",
+    cardHover: "#260035",
+    accent: "#ff2a6d",
+    text: "#f0e6ff",
+    textMuted: "#8a6aaa",
+    border: "#3a1050",
+    inputBg: "#1a0025",
+    playerBg: "#0a0010",
+    navBg: "#0d0015ee",
+    gradient: "radial-gradient(ellipse at 20% 50%, rgba(255,42,109,0.1) 0%, transparent 50%), radial-gradient(ellipse at 80% 20%, rgba(5,217,232,0.06) 0%, transparent 40%)",
+    glowColor: "rgba(255,42,109,0.35)",
+    className: "cyberpunk-theme",
+  },
+  synthwave: {
+    id: "synthwave",
+    name: "Синтвейв",
+    background: "#120a20",
+    card: "#1c1230",
+    cardHover: "#261a40",
+    accent: "#e040fb",
+    text: "#f3e5f5",
+    textMuted: "#7a5a8a",
+    border: "#352548",
+    inputBg: "#1c1230",
+    playerBg: "#0f0818",
+    navBg: "#120a20ee",
+    gradient: "radial-gradient(ellipse at 20% 50%, rgba(224,64,251,0.08) 0%, transparent 50%), radial-gradient(ellipse at 80% 80%, rgba(255,110,64,0.05) 0%, transparent 40%)",
+    glowColor: "rgba(224,64,251,0.3)",
+    className: "synthwave-theme",
+  },
 };
 
 export function applyThemeToDOM(theme: ThemeConfig, customAccent?: string) {
@@ -121,7 +155,7 @@ export function applyThemeToDOM(theme: ThemeConfig, customAccent?: string) {
   root.style.setProperty("--mq-glow", theme.glowColor);
 
   // Remove all theme classes
-  const allThemeClasses = ["gothic-theme", "minecraft-theme", "ocean-theme", "neon-theme", "sunset-theme", "aurora-theme"];
+  const allThemeClasses = ["ocean-theme", "neon-theme", "sunset-theme", "aurora-theme", "cyberpunk-theme", "synthwave-theme"];
   allThemeClasses.forEach(c => root.classList.remove(c));
   if (theme.className) {
     root.classList.add(theme.className);

@@ -166,9 +166,18 @@ export default function PlayerBar() {
 
       ctx.clearRect(0, 0, displayWidth, displayHeight);
 
-      const barCount = 24;
+      const barCount = 32;
       const gap = 2;
       const barWidth = (displayWidth - gap * (barCount - 1)) / barCount;
+      const accentColor = getComputedStyle(document.documentElement).getPropertyValue("--mq-accent").trim() || "#e03131";
+
+      // Parse accent to RGB for gradient
+      let r = 224, g = 49, b = 49;
+      if (accentColor.startsWith("#") && accentColor.length >= 7) {
+        r = parseInt(accentColor.slice(1, 3), 16);
+        g = parseInt(accentColor.slice(3, 5), 16);
+        b = parseInt(accentColor.slice(5, 7), 16);
+      }
 
       for (let i = 0; i < barCount; i++) {
         const dataIndex = Math.floor(i * bufferLength / barCount);
@@ -178,11 +187,13 @@ export default function PlayerBar() {
         const x = i * (barWidth + gap);
         const y = displayHeight - barHeight;
 
-        // Gradient color based on frequency
-        const hue = 0 + (i / barCount) * 40;
-        const accentColor = getComputedStyle(document.documentElement).getPropertyValue("--mq-accent").trim();
+        // Gradient from accent to lighter version
+        const mix = i / barCount;
+        const cr = Math.round(r + (255 - r) * mix * 0.3);
+        const cg = Math.round(g + (255 - g) * mix * 0.3);
+        const cb = Math.round(b + (255 - b) * mix * 0.3);
 
-        ctx.fillStyle = accentColor || "#e03131";
+        ctx.fillStyle = `rgba(${cr},${cg},${cb},1)`;
         ctx.globalAlpha = 0.4 + value * 0.6;
         ctx.beginPath();
         ctx.roundRect(x, y, barWidth, barHeight, 1);
@@ -539,7 +550,7 @@ export default function PlayerBar() {
       <canvas
         ref={canvasRef}
         className="w-full pointer-events-none"
-        style={{ height: 16, opacity: isPlaying ? 0.8 : 0 }}
+        style={{ height: 24, opacity: isPlaying ? 0.8 : 0, transition: "opacity 0.3s" }}
       />
     </motion.div>
   );
