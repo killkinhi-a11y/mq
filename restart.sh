@@ -15,9 +15,8 @@ force_restart() {
   cp -r /home/z/my-project/.next/static "$STANDALONE_DIR/.next/static" 2>/dev/null
 
   echo "[restart] Starting server..."
-  cd "$STANDALONE_DIR"
-  PORT=$PORT nohup node server.js > "$LOG" 2>&1 &
-  disown
+  # Use subshell to fully detach — bare & gets killed when parent shell exits
+  ( cd "$STANDALONE_DIR" && PORT=$PORT nohup node server.js </dev/null > "$LOG" 2>&1 & )
   sleep 4
 
   if curl -s --connect-timeout 5 -o /dev/null -w '%{http_code}' http://localhost:$PORT 2>/dev/null | grep -q "200"; then
