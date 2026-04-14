@@ -9,7 +9,7 @@ datasource db {
 
 model User {
   id             String    @id @default(cuid())
-  username       String
+  username       String    @unique
   email          String    @unique
   password       String
   confirmed      Boolean   @default(false)
@@ -18,6 +18,8 @@ model User {
   createdAt      DateTime  @default(now())
   sentMessages   Message[] @relation("SentMessages")
   receivedMessages Message[] @relation("ReceivedMessages")
+  sentFriendRequests     Friend[] @relation("SentFriendRequests")
+  receivedFriendRequests Friend[] @relation("ReceivedFriendRequests")
 }
 
 model Message {
@@ -29,4 +31,17 @@ model Message {
   createdAt  DateTime @default(now())
   sender     User     @relation("SentMessages", fields: [senderId], references: [id])
   receiver   User     @relation("ReceivedMessages", fields: [receiverId], references: [id])
+}
+
+model Friend {
+  id         String   @id @default(cuid())
+  requesterId String
+  addresseeId String
+  status     String   @default("pending") // "pending", "accepted", "rejected"
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  requester  User     @relation("SentFriendRequests", fields: [requesterId], references: [id])
+  addressee  User     @relation("ReceivedFriendRequests", fields: [addresseeId], references: [id])
+
+  @@unique([requesterId, addresseeId])
 }

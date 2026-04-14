@@ -566,7 +566,7 @@ export default function PlayerBar() {
       <canvas
         ref={canvasRef}
         className="w-full pointer-events-none block"
-        style={{ height: 40, opacity: isPlaying ? 0.8 : 0.15, transition: "opacity 0.3s", minHeight: 40 }}
+        style={{ height: 24, opacity: isPlaying ? 0.8 : 0.15, transition: "opacity 0.3s", minHeight: 24 }}
       />
     </motion.div>
   );

@@ -13,6 +13,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Username: only allow alphanumeric, underscore, hyphen; 2-20 chars
+    const usernameRegex = /^[a-zA-Z0-9_-]{2,20}$/;
+    if (!usernameRegex.test(username)) {
+      return NextResponse.json(
+        { error: "Имя пользователя может содержать только буквы, цифры, _ и -. От 2 до 20 символов" },
+        { status: 400 }
+      );
+    }
+
     if (username.length < 2) {
       return NextResponse.json(
         { error: "Имя пользователя должно быть не менее 2 символов" },
@@ -35,6 +44,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Check username uniqueness
+    const existingUsername = await db.user.findUnique({ where: { username } });
+    if (existingUsername) {
+      return NextResponse.json(
+        { error: "Пользователь с таким именем уже занят" },
+        { status: 409 }
+      );
+    }
+
+    // Check email uniqueness
     const existing = await db.user.findUnique({ where: { email } });
     if (existing) {
       return NextResponse.json(

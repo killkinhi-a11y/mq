@@ -7,9 +7,21 @@ import MessageBubble from "./MessageBubble";
 import { Input } from "@/components/ui/input";
 import {
   Lock, Shield, Send, ArrowLeft, Search, ShieldCheck, Phone, Smile, Trash2,
-  Plus, Music2, X, Loader2, Copy, Reply, MoreVertical
+  Plus, Music2, X, Loader2, Copy, Reply, MoreVertical, UserPlus, UserCheck, Users, AlertCircle
 } from "lucide-react";
 import { simulateEncrypt, getEncryptionStatus, generateMockFingerprint, simulateDecryptSync } from "@/lib/crypto";
+
+interface FriendUser {
+  id: string;
+  username: string;
+  addedAt: string;
+}
+
+interface PendingRequest {
+  id: string;
+  username: string;
+  requestId: string;
+}
 
 interface FetchedUser {
   id: string;
@@ -38,6 +50,7 @@ export default function MessengerView() {
   const {
     userId, username, messages, addMessage, selectedContactId, setSelectedContact,
     animationsEnabled, currentTrack, unreadCounts, addContact, contacts,
+    loadMessages,
   } = useAppStore();
 
   const [inputText, setInputText] = useState("");
@@ -46,7 +59,6 @@ export default function MessengerView() {
   const [showEmojis, setShowEmojis] = useState(false);
   const [mentionSearch, setMentionSearch] = useState("");
   const [showMentions, setShowMentions] = useState(false);
-  const [deleteMessageId, setDeleteMessageId] = useState<string | null>(null);
   const [contextMenuMsgId, setContextMenuMsgId] = useState<{ id: string; x: number; y: number } | null>(null);
   const [showNewChatDialog, setShowNewChatDialog] = useState(false);
   const [newChatSearch, setNewChatSearch] = useState("");
@@ -54,74 +66,91 @@ export default function MessengerView() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Prevent hydration mismatch
-  useEffect(() => { setMounted(true); }, []);
+  // Friends system state
+  const [friends, setFriends] = useState<FriendUser[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<PendingRequest[]>([]);
+  const [isLoadingFriends, setIsLoadingFriends] = useState(false);
+  const [friendRequestStatus, setFriendRequestStatus] = useState<Record<string, string>>({});
+  const [showFriendRequests, setShowFriendRequests] = useState(false);
 
-  // Fetch real users on mount
-  const [allUsers, setAllUsers] = useState<FetchedUser[]>([]);
-  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    const fetchUsers = async () => {
-      setIsLoadingUsers(true);
-      try {
-        const excludeParam = userId ? `?excludeId=${userId}` : "";
-        const res = await fetch(`/api/users/search${excludeParam}`);
-        if (!res.ok) { setAllUsers([]); return; }
-        const data = await res.json();
-        if (!cancelled) setAllUsers(data.users || []);
-      } catch {
-        if (!cancelled) setAllUsers([]);
-      } finally {
-        if (!cancelled) setIsLoadingUsers(false);
-      }
-    };
-    fetchUsers();
-    return () => { cancelled = true; };
-  }, [userId]);
-
-  // Debounced API search for sidebar search input
-  const [sidebarSearchResults, setSidebarSearchResults] = useState<FetchedUser[] | null>(null);
-  const [isSearching, setIsSearching] = useState(false);
-
-  useEffect(() => {
-    const q = searchContact.trim();
-    if (!q) {
-      setSidebarSearchResults(null);
-      setIsSearching(false);
-      return;
-    }
-    const timer = setTimeout(async () => {
-      setIsSearching(true);
-      try {
-        const excludeParam = userId ? `&excludeId=${userId}` : "";
-        const searchQuery = q.startsWith("@") ? q.slice(1) : q;
-        const res = await fetch(`/api/users/search?q=${encodeURIComponent(searchQuery)}${excludeParam}`);
-        if (!res.ok) { setSidebarSearchResults([]); return; }
-        const data = await res.json();
-        setSidebarSearchResults(data.users || []);
-      } catch {
-        setSidebarSearchResults([]);
-      } finally {
-        setIsSearching(false);
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchContact, userId]);
-
-  // New chat dialog: search API with query
+  // New chat dialog search results
   const [newChatUsers, setNewChatUsers] = useState<FetchedUser[]>([]);
   const [isLoadingNewChat, setIsLoadingNewChat] = useState(false);
 
+  // Server messages loaded flag
+  const [serverMessagesLoaded, setServerMessagesLoaded] = useState<Record<string, boolean>>({});
+
+  // Prevent hydration mismatch
+  useEffect(() => { setMounted(true); }, []);
+
+  // Fetch friends list
+  const fetchFriends = useCallback(async () => {
+    if (!userId) return;
+    setIsLoadingFriends(true);
+    try {
+      const res = await fetch(`/api/friends?userId=${userId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setFriends(data.friends || []);
+        setPendingRequests(data.pendingRequests || []);
+      }
+    } catch {
+      // silent
+    } finally {
+      setIsLoadingFriends(false);
+    }
+  }, [userId]);
+
+  // Load friends on mount
+  useEffect(() => {
+    fetchFriends();
+  }, [fetchFriends]);
+
+  // When selecting a contact, load messages from server
+  useEffect(() => {
+    if (!userId || !selectedContactId) return;
+    const cacheKey = `${userId}-${selectedContactId}`;
+    if (serverMessagesLoaded[cacheKey]) return;
+
+    const loadServerMessages = async () => {
+      try {
+        const res = await fetch(`/api/messages?senderId=${userId}&receiverId=${selectedContactId}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.messages && data.messages.length > 0) {
+            const serverMsgs = data.messages.map((m: { id: string; content: string; senderId: string; receiverId: string; encrypted: boolean; createdAt: string; sender: { username: string } }) => ({
+              id: m.id,
+              content: m.content,
+              senderId: m.senderId,
+              receiverId: m.receiverId,
+              encrypted: m.encrypted,
+              createdAt: m.createdAt,
+              senderName: `@${m.sender?.username || "user"}`,
+            }));
+            loadMessages(serverMsgs);
+          }
+        }
+      } catch {
+        // silent — use local messages
+      } finally {
+        setServerMessagesLoaded(prev => ({ ...prev, [cacheKey]: true }));
+      }
+    };
+    loadServerMessages();
+  }, [userId, selectedContactId, serverMessagesLoaded, loadMessages]);
+
+  // New chat dialog: search users API with debounce
   useEffect(() => {
     let cancelled = false;
-    const fetchNewChatUsers = async () => {
+    const q = newChatSearch.trim();
+    if (!q) { setNewChatUsers([]); return; }
+
+    const timer = setTimeout(async () => {
       setIsLoadingNewChat(true);
       try {
         const excludeParam = userId ? `&excludeId=${userId}` : "";
-        const res = await fetch(`/api/users/search?q=${encodeURIComponent(newChatSearch)}${excludeParam}`);
-        if (!res.ok) { setNewChatUsers([]); return; }
+        const res = await fetch(`/api/users/search?q=${encodeURIComponent(q)}${excludeParam}`);
+        if (!res.ok) { if (!cancelled) setNewChatUsers([]); return; }
         const data = await res.json();
         if (!cancelled) setNewChatUsers(data.users || []);
       } catch {
@@ -129,46 +158,35 @@ export default function MessengerView() {
       } finally {
         if (!cancelled) setIsLoadingNewChat(false);
       }
-    };
-    fetchNewChatUsers();
-    return () => { cancelled = true; };
+    }, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [newChatSearch, userId]);
 
-  // Convert fetched users to contact format for display
-  // When searching, use API results; otherwise use full user list
+  // Build contact list from friends (not all users)
   const contactList = useMemo(() => {
-    const sourceUsers = sidebarSearchResults !== null ? sidebarSearchResults : allUsers;
-    return sourceUsers.map((u) => ({
-      id: u.id,
-      name: u.username,
-      username: u.username,
-      avatar: `https://picsum.photos/seed/${u.username}/100/100`,
+    return friends.map((f) => ({
+      id: f.id,
+      name: f.username,
+      username: f.username,
+      avatar: `https://picsum.photos/seed/${f.username}/100/100`,
       online: false,
-      lastSeen: new Date(u.createdAt).toLocaleDateString("ru-RU"),
+      lastSeen: new Date(f.addedAt).toLocaleDateString("ru-RU"),
     }));
-  }, [allUsers, sidebarSearchResults]);
+  }, [friends]);
 
-  // When opening new chat, reset search
-  useEffect(() => {
-    if (showNewChatDialog) {
-      setNewChatSearch("");
-    }
-  }, [showNewChatDialog]);
+  // Filter contacts for sidebar search
+  const filteredContacts = useMemo(() => {
+    if (!searchContact.trim()) return contactList;
+    const q = searchContact.toLowerCase();
+    return contactList.filter(c =>
+      c.username.toLowerCase().includes(q) || c.name.toLowerCase().includes(q)
+    );
+  }, [contactList, searchContact]);
 
   const selectedContact = useMemo(
     () => contacts.find((c) => c.id === selectedContactId) || contactList.find((c) => c.id === selectedContactId),
     [selectedContactId, contacts, contactList]
   );
-
-  // Filter contacts: when sidebarSearchResults is set (user is typing), use those directly
-  // (API already filtered). When no search query, show all users.
-  const filteredContacts = useMemo(() => {
-    // If API search results are available (user typed something), use them directly
-    if (sidebarSearchResults !== null) {
-      return contactList;
-    }
-    return contactList;
-  }, [contactList, sidebarSearchResults]);
 
   // Get last message per contact
   const getLastMessage = useCallback((contactId: string) => {
@@ -182,22 +200,24 @@ export default function MessengerView() {
     return msgs[msgs.length - 1];
   }, [messages, userId]);
 
-  // Get unread count for contact
   const getUnreadCount = useCallback((contactId: string) => {
     return unreadCounts[contactId] || 0;
   }, [unreadCounts]);
 
-  // New chat filtered users (from API)
+  // New chat filtered users (exclude already friends)
+  const friendIds = useMemo(() => new Set(friends.map(f => f.id)), [friends]);
   const newChatFilteredContacts = useMemo(() => {
-    return newChatUsers.map((u) => ({
-      id: u.id,
-      name: u.username,
-      username: u.username,
-      avatar: `https://picsum.photos/seed/${u.username}/100/100`,
-      online: false,
-      lastSeen: new Date(u.createdAt).toLocaleDateString("ru-RU"),
-    }));
-  }, [newChatUsers]);
+    return newChatUsers
+      .filter(u => !friendIds.has(u.id))
+      .map((u) => ({
+        id: u.id,
+        name: u.username,
+        username: u.username,
+        avatar: `https://picsum.photos/seed/${u.username}/100/100`,
+        online: false,
+        lastSeen: new Date(u.createdAt).toLocaleDateString("ru-RU"),
+      }));
+  }, [newChatUsers, friendIds]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -262,9 +282,20 @@ export default function MessengerView() {
       };
 
       addMessage(msg);
+
+      // Also save to server
+      fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: encryptedContent,
+          senderId: userId,
+          receiverId: selectedContactId,
+          encrypted: true,
+        }),
+      }).catch(() => {});
     } catch (err) {
       console.error("[MQ Messenger] Failed to send message:", err);
-      // Fallback: send without encryption
       const msg = {
         id: Date.now().toString(),
         content: inputText.trim(),
@@ -275,6 +306,17 @@ export default function MessengerView() {
         senderName: `@${username || "user"}`,
       };
       addMessage(msg);
+
+      fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: inputText.trim(),
+          senderId: userId,
+          receiverId: selectedContactId,
+          encrypted: false,
+        }),
+      }).catch(() => {});
     }
     setInputText("");
     setShowEmojis(false);
@@ -291,7 +333,6 @@ export default function MessengerView() {
     useAppStore.setState({
       messages: useAppStore.getState().messages.filter((m) => m.id !== messageId),
     });
-    setDeleteMessageId(null);
     setContextMenuMsgId(null);
   };
 
@@ -335,6 +376,47 @@ export default function MessengerView() {
     addMessage(msg);
   };
 
+  // Send friend request
+  const sendFriendRequest = async (targetUserId: string) => {
+    if (!userId) return;
+    setFriendRequestStatus(prev => ({ ...prev, [targetUserId]: "loading" }));
+    try {
+      const res = await fetch("/api/friends", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requesterId: userId, addresseeId: targetUserId }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setFriendRequestStatus(prev => ({ ...prev, [targetUserId]: "sent" }));
+        // If auto-accepted (other person had pending request), refresh friends
+        if (data.message?.includes("друзья")) {
+          fetchFriends();
+        }
+      } else {
+        setFriendRequestStatus(prev => ({ ...prev, [targetUserId]: data.error || "error" }));
+      }
+    } catch {
+      setFriendRequestStatus(prev => ({ ...prev, [targetUserId]: "error" }));
+    }
+  };
+
+  // Accept / reject friend request
+  const handleFriendRequest = async (requestId: string, action: "accept" | "reject") => {
+    try {
+      const res = await fetch(`/api/friends/${requestId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      if (res.ok) {
+        fetchFriends();
+      }
+    } catch {
+      // silent
+    }
+  };
+
   const contactMessages = useMemo(() => {
     if (!userId) return [];
     return messages.filter(
@@ -361,7 +443,7 @@ export default function MessengerView() {
     return groups;
   }, [contactMessages]);
 
-  // When selecting a contact from new chat, add to contacts list
+  // When selecting a contact from new chat (after sending friend request & being accepted)
   const handleSelectContact = (contact: { id: string; name: string; username: string; avatar: string; online: boolean; lastSeen: string }) => {
     addContact(contact);
     setSelectedContact(contact.id);
@@ -380,22 +462,40 @@ export default function MessengerView() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row" style={{ backgroundColor: "var(--mq-bg)" }}>
+    <div className="min-h-screen flex flex-col lg:flex-row" style={{ backgroundColor: "var(--mq-bg)", paddingBottom: "calc(56px + 24px)" }}>
       {/* Contacts sidebar */}
       <div
-        className={`w-full lg:w-80 flex-shrink-0 ${selectedContactId ? "hidden lg:flex" : "flex"} flex-col lg:h-screen`}
-        style={{ borderRight: "1px solid var(--mq-border)" }}
+        className={`w-full lg:w-80 flex-shrink-0 ${selectedContactId ? "hidden lg:flex" : "flex"} flex-col`}
+        style={{ borderRight: "1px solid var(--mq-border)", height: "calc(100dvh - 80px)" }}
       >
-        <div className="p-4 flex items-center justify-between" style={{ borderBottom: "1px solid var(--mq-border)" }}>
+        <div className="p-4 flex items-center justify-between flex-shrink-0" style={{ borderBottom: "1px solid var(--mq-border)" }}>
           <h2 className="font-bold" style={{ color: "var(--mq-text)" }}>Мессенджер</h2>
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1" title="Сквозное шифрование">
               <ShieldCheck className="w-4 h-4" style={{ color: "var(--mq-accent)" }} />
               <span className="text-[10px]" style={{ color: "var(--mq-accent)" }}>E2E</span>
             </div>
+            {/* Friend requests badge */}
+            <div className="relative">
+              <motion.button
+                whileTap={{ scale: 0.9 }}
+                onClick={() => setShowFriendRequests(!showFriendRequests)}
+                className="p-1.5 rounded-lg cursor-pointer"
+                style={{ backgroundColor: "var(--mq-card)", border: "1px solid var(--mq-border)", color: "var(--mq-text)" }}
+                title="Заявки в друзья"
+              >
+                <Users className="w-4 h-4" />
+              </motion.button>
+              {pendingRequests.length > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] rounded-full text-[8px] flex items-center justify-center px-0.5"
+                  style={{ backgroundColor: "var(--mq-accent)", color: "var(--mq-text)" }}>
+                  {pendingRequests.length}
+                </span>
+              )}
+            </div>
             <motion.button
               whileTap={{ scale: 0.9 }}
-              onClick={() => setShowNewChatDialog(true)}
+              onClick={() => { setShowNewChatDialog(true); setShowFriendRequests(false); }}
               className="p-1.5 rounded-lg cursor-pointer"
               style={{ backgroundColor: "var(--mq-card)", border: "1px solid var(--mq-border)", color: "var(--mq-text)" }}
               title="Новый чат"
@@ -405,11 +505,53 @@ export default function MessengerView() {
           </div>
         </div>
 
-        <div className="p-3">
+        {/* Friend requests panel */}
+        <AnimatePresence>
+          {showFriendRequests && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden flex-shrink-0"
+            >
+              <div className="p-3" style={{ borderBottom: "1px solid var(--mq-border)" }}>
+                <p className="text-xs font-medium mb-2" style={{ color: "var(--mq-text)" }}>
+                  Заявки в друзья ({pendingRequests.length})
+                </p>
+                {pendingRequests.length === 0 ? (
+                  <p className="text-[11px]" style={{ color: "var(--mq-text-muted)" }}>Нет заявок</p>
+                ) : (
+                  <div className="space-y-2">
+                    {pendingRequests.map((req) => (
+                      <div key={req.requestId} className="flex items-center gap-2 p-2 rounded-lg"
+                        style={{ backgroundColor: "var(--mq-input-bg)" }}>
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+                          style={{ backgroundColor: "var(--mq-accent)", color: "var(--mq-text)" }}>
+                          {req.username.charAt(0).toUpperCase()}
+                        </div>
+                        <span className="text-sm flex-1 truncate" style={{ color: "var(--mq-text)" }}>@{req.username}</span>
+                        <button onClick={() => handleFriendRequest(req.requestId, "accept")}
+                          className="p-1 rounded-md" style={{ color: "#4ade80" }} title="Принять">
+                          <UserCheck className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => handleFriendRequest(req.requestId, "reject")}
+                          className="p-1 rounded-md" style={{ color: "#ef4444" }} title="Отклонить">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="p-3 flex-shrink-0">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "var(--mq-text-muted)" }} />
             <Input
-              placeholder="Поиск или @username..."
+              placeholder="Поиск друзей..."
               value={searchContact}
               onChange={(e) => setSearchContact(e.target.value)}
               className="pl-10 min-h-[40px]"
@@ -419,15 +561,15 @@ export default function MessengerView() {
         </div>
 
         <div
-          className="mx-3 mb-2 p-2 rounded-lg text-xs flex items-start gap-2"
+          className="mx-3 mb-2 p-2 rounded-lg text-xs flex items-start gap-2 flex-shrink-0"
           style={{ backgroundColor: "var(--mq-card)", border: "1px solid var(--mq-border)" }}
         >
           <Lock className="w-3 h-3 mt-0.5 flex-shrink-0" style={{ color: "var(--mq-accent)" }} />
           <p style={{ color: "var(--mq-text-muted)" }}>Все сообщения защищены сквозным шифрованием {getEncryptionStatus()}</p>
         </div>
 
-        <div className="flex-1 overflow-y-auto max-h-96 lg:max-h-none">
-          {isLoadingUsers || isSearching ? (
+        <div className="flex-1 overflow-y-auto">
+          {isLoadingFriends ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="w-5 h-5 animate-spin" style={{ color: "var(--mq-text-muted)" }} />
             </div>
@@ -496,8 +638,12 @@ export default function MessengerView() {
             })
           ) : (
             <div className="text-center py-8">
+              <Users className="w-10 h-10 mx-auto mb-2" style={{ color: "var(--mq-text-muted)", opacity: 0.3 }} />
               <p className="text-sm" style={{ color: "var(--mq-text-muted)" }}>
-                {isSearching ? "Поиск..." : searchContact.trim() ? "Пользователи не найдены" : "Нет пользователей"}
+                {searchContact.trim() ? "Друзья не найдены" : "У вас пока нет друзей"}
+              </p>
+              <p className="text-xs mt-1" style={{ color: "var(--mq-text-muted)", opacity: 0.6 }}>
+                Нажмите + чтобы найти и добавить друзей
               </p>
             </div>
           )}
@@ -505,12 +651,13 @@ export default function MessengerView() {
       </div>
 
       {/* Chat area */}
-      <div className={`flex-1 flex flex-col lg:h-screen ${!selectedContactId ? "hidden lg:flex" : "flex"}`}>
+      <div className={`flex-1 flex flex-col ${!selectedContactId ? "hidden lg:flex" : "flex"}`}
+        style={{ height: "calc(100dvh - 80px)" }}>
         {selectedContact ? (
           <>
             {/* Chat header */}
             <div
-              className="flex items-center gap-3 p-3 lg:p-4"
+              className="flex items-center gap-3 p-3 lg:p-4 flex-shrink-0"
               style={{ borderBottom: "1px solid var(--mq-border)", backgroundColor: "var(--mq-player-bg)" }}
             >
               <button
@@ -534,7 +681,6 @@ export default function MessengerView() {
                   </span>
                 </div>
               </div>
-              {/* Share track button */}
               {currentTrack && (
                 <motion.button
                   whileTap={{ scale: 0.9 }}
@@ -546,16 +692,12 @@ export default function MessengerView() {
                   <Music2 className="w-5 h-5" />
                 </motion.button>
               )}
-              <button className="p-2 cursor-pointer" style={{ color: "var(--mq-text-muted)" }} title="Видеозвонок">
-                <Phone className="w-5 h-5" />
-              </button>
             </div>
 
             {/* Messages */}
             <div
               ref={scrollRef}
-              className="flex-1 overflow-y-auto p-4 space-y-3"
-              style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+              className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0"
             >
               <div className="flex justify-center mb-4">
                 <div
@@ -579,7 +721,6 @@ export default function MessengerView() {
 
                 {groupedMessages.map((group) => (
                   <div key={group.label}>
-                    {/* Date separator */}
                     <div className="flex items-center justify-center my-4">
                       <div className="px-3 py-1 rounded-full text-[11px]" style={{ backgroundColor: "var(--mq-card)", border: "1px solid var(--mq-border)", color: "var(--mq-text-muted)" }}>
                         {group.label}
@@ -616,7 +757,6 @@ export default function MessengerView() {
                         onTouchMove={handleTouchMove}
                       >
                         <MessageBubble message={msg} currentUserId={userId || undefined} />
-                        {/* Long-press / more button for mobile */}
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -629,7 +769,6 @@ export default function MessengerView() {
                         >
                           <MoreVertical className="w-3.5 h-3.5" style={{ color: "var(--mq-text-muted)" }} />
                         </button>
-                        {/* Context menu dropdown */}
                         {contextMenuMsgId && contextMenuMsgId.id === msg.id && (
                           <div
                             className="absolute top-1 right-1 z-20 rounded-xl py-1 shadow-2xl min-w-[160px]"
@@ -683,7 +822,7 @@ export default function MessengerView() {
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}
                   exit={{ opacity: 0, height: 0 }}
-                  className="overflow-hidden mx-3 mb-1 rounded-xl"
+                  className="overflow-hidden mx-3 mb-1 rounded-xl flex-shrink-0"
                   style={{ backgroundColor: "var(--mq-card)", border: "1px solid var(--mq-border)" }}
                 >
                   <div className="px-3 py-1.5">
@@ -707,9 +846,9 @@ export default function MessengerView() {
               )}
             </AnimatePresence>
 
-            {/* Input */}
+            {/* Input — always visible at the bottom */}
             <div
-              className="p-3 flex items-center gap-2"
+              className="p-3 flex items-center gap-2 flex-shrink-0"
               style={{ borderTop: "1px solid var(--mq-border)", backgroundColor: "var(--mq-player-bg)" }}
             >
               <div className="flex-1 relative">
@@ -735,7 +874,7 @@ export default function MessengerView() {
               <motion.button
                 whileTap={{ scale: 0.9 }}
                 onClick={() => setShowEmojis(!showEmojis)}
-                className="p-2 rounded-full cursor-pointer"
+                className="p-2 rounded-full cursor-pointer flex-shrink-0"
                 style={{ color: "var(--mq-text-muted)" }}
               >
                 <Smile className="w-5 h-5" />
@@ -763,7 +902,7 @@ export default function MessengerView() {
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 10 }}
-                  className="p-3 flex flex-wrap gap-2 justify-center"
+                  className="p-3 flex flex-wrap gap-2 justify-center flex-shrink-0"
                   style={{ borderTop: "1px solid var(--mq-border)", backgroundColor: "var(--mq-player-bg)" }}
                 >
                   {quickEmojis.map((emoji) => (
@@ -788,14 +927,14 @@ export default function MessengerView() {
             <div className="text-center">
               <Shield className="w-16 h-16 mx-auto mb-4" style={{ color: "var(--mq-text-muted)", opacity: 0.3 }} />
               <h3 className="text-lg font-medium mb-2" style={{ color: "var(--mq-text)" }}>Безопасный мессенджер</h3>
-              <p className="text-sm" style={{ color: "var(--mq-text-muted)" }}>Выберите контакт для начала разговора</p>
+              <p className="text-sm" style={{ color: "var(--mq-text-muted)" }}>Выберите друга для начала разговора</p>
               <p className="text-xs mt-1" style={{ color: "var(--mq-accent)" }}>Отпечаток ключа: {fingerprint}</p>
             </div>
           </div>
         )}
       </div>
 
-      {/* New Chat Dialog */}
+      {/* New Chat / Add Friend Dialog */}
       <AnimatePresence>
         {showNewChatDialog && (
           <motion.div
@@ -822,7 +961,7 @@ export default function MessengerView() {
                 className="flex items-center justify-between p-4"
                 style={{ borderBottom: "1px solid var(--mq-border)" }}
               >
-                <h3 className="font-bold" style={{ color: "var(--mq-text)" }}>Новый чат</h3>
+                <h3 className="font-bold" style={{ color: "var(--mq-text)" }}>Найти и добавить друга</h3>
                 <button
                   onClick={() => setShowNewChatDialog(false)}
                   className="p-1 cursor-pointer"
@@ -836,7 +975,7 @@ export default function MessengerView() {
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "var(--mq-text-muted)" }} />
                   <Input
-                    placeholder="Найти по @username или имени..."
+                    placeholder="Поиск по @username или имени..."
                     value={newChatSearch}
                     onChange={(e) => setNewChatSearch(e.target.value)}
                     className="pl-10 min-h-[40px]"
@@ -856,30 +995,61 @@ export default function MessengerView() {
                     <Loader2 className="w-5 h-5 animate-spin" style={{ color: "var(--mq-text-muted)" }} />
                   </div>
                 ) : newChatFilteredContacts.length > 0 ? (
-                  newChatFilteredContacts.map((contact) => (
-                    <motion.button
-                      key={contact.id}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => handleSelectContact(contact)}
-                      className="w-full flex items-center gap-3 p-3 hover:opacity-80 transition-opacity text-left cursor-pointer"
-                      style={{ borderBottom: "1px solid var(--mq-border)" }}
-                    >
-                      <div className="relative flex-shrink-0">
-                        <img src={contact.avatar} alt={contact.name} className="w-10 h-10 rounded-full object-cover" />
+                  newChatFilteredContacts.map((contact) => {
+                    const status = friendRequestStatus[contact.id];
+                    return (
+                      <div
+                        key={contact.id}
+                        className="flex items-center gap-3 p-3"
+                        style={{ borderBottom: "1px solid var(--mq-border)" }}
+                      >
+                        <div className="relative flex-shrink-0">
+                          <img src={contact.avatar} alt={contact.name} className="w-10 h-10 rounded-full object-cover" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate" style={{ color: "var(--mq-text)" }}>
+                            {contact.name}
+                          </p>
+                          <p className="text-xs" style={{ color: "var(--mq-text-muted)" }}>
+                            @{contact.username}
+                          </p>
+                        </div>
+                        {status === "sent" ? (
+                          <span className="text-xs px-3 py-1.5 rounded-lg flex-shrink-0" style={{ color: "var(--mq-accent)", backgroundColor: "rgba(224,49,49,0.1)" }}>
+                            Отправлено
+                          </span>
+                        ) : status && status !== "loading" ? (
+                          <span className="text-xs px-3 py-1.5 rounded-lg flex-shrink-0" style={{ color: "#ef4444", backgroundColor: "rgba(239,68,68,0.1)" }}>
+                            <AlertCircle className="w-3 h-3 inline mr-1" />
+                            Ошибка
+                          </span>
+                        ) : (
+                          <motion.button
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => sendFriendRequest(contact.id)}
+                            disabled={status === "loading"}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer flex-shrink-0"
+                            style={{ backgroundColor: "var(--mq-accent)", color: "var(--mq-text)" }}
+                          >
+                            {status === "loading" ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <UserPlus className="w-3 h-3" />
+                            )}
+                            Добавить
+                          </motion.button>
+                        )}
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate" style={{ color: "var(--mq-text)" }}>
-                          {contact.name}
-                        </p>
-                        <p className="text-xs" style={{ color: "var(--mq-text-muted)" }}>
-                          @{contact.username}
-                        </p>
-                      </div>
-                    </motion.button>
-                  ))
-                ) : (
+                    );
+                  })
+                ) : newChatSearch.trim() ? (
                   <div className="text-center py-8">
                     <p className="text-sm" style={{ color: "var(--mq-text-muted)" }}>Пользователи не найдены</p>
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <Search className="w-8 h-8 mx-auto mb-2" style={{ color: "var(--mq-text-muted)", opacity: 0.3 }} />
+                    <p className="text-sm" style={{ color: "var(--mq-text-muted)" }}>Введите имя или @username для поиска</p>
                   </div>
                 )}
               </div>

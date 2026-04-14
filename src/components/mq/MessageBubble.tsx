@@ -103,9 +103,9 @@ export default function MessageBubble({ message, currentUserId }: MessageBubbleP
             </div>
           )}
 
-          <p className="text-sm break-words" style={{ color: "var(--mq-text)" }}>
+          <div className="text-sm break-words" style={{ color: "var(--mq-text)" }}>
             {renderContent()}
-          </p>
+          </div>
 
           <div className="flex items-center justify-end gap-1 mt-1">
             {message.encrypted && (

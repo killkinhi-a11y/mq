@@ -285,18 +285,20 @@ export default function SettingsView() {
           </span>
         </div>
         <p className="text-xs mb-3" style={{ color: "var(--mq-text-muted)" }}>Колёсико мыши для регулировки</p>
-        <input
-          type="range"
-          min="0"
-          max="100"
-          value={volume}
-          onChange={(e) => setVolume(Number(e.target.value))}
-          className="w-full h-2 rounded-full appearance-none cursor-pointer"
-          style={{
-            backgroundColor: "var(--mq-border)",
-            accentColor: "var(--mq-accent)",
-          }}
-        />
+        <div className="relative w-full">
+          <div className="absolute top-1/2 left-0 h-2 rounded-full -translate-y-1/2" style={{ width: `${volume}%`, backgroundColor: "var(--mq-accent)" }} />
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={volume}
+            onChange={(e) => setVolume(Number(e.target.value))}
+            className="w-full h-2 rounded-full appearance-none cursor-pointer relative z-10"
+            style={{
+              backgroundColor: "var(--mq-border)",
+            }}
+          />
+        </div>
       </motion.div>
 
       {/* Security info */}

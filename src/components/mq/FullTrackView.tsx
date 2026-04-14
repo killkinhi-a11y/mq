@@ -278,19 +278,20 @@ export default function FullTrackView() {
             className="relative mb-8"
           >
             {/* Circular audio visualization canvas - sized larger than album art */}
-            <canvas
-              ref={vizCanvasRef}
-              className="absolute pointer-events-none"
-              style={{
-                width: "calc(100% + 60px)",
-                height: "calc(100% + 60px)",
-                left: "-30px",
-                top: "-30px",
-                opacity: isPlaying ? 0.75 : 0.15,
-                transition: "opacity 0.4s",
-              }}
-            />
-            <div className="w-64 h-64 sm:w-72 sm:h-72 lg:w-80 lg:h-80 rounded-2xl overflow-hidden shadow-2xl relative z-10"
+            <div className="absolute pointer-events-none" style={{
+              width: "calc(100% + 50px)",
+              height: "calc(100% + 50px)",
+              left: "-25px",
+              top: "-25px",
+              opacity: isPlaying ? 0.75 : 0.15,
+              transition: "opacity 0.4s",
+            }}>
+              <canvas
+                ref={vizCanvasRef}
+                className="w-full h-full"
+              />
+            </div>
+            <div className="w-56 h-56 sm:w-64 sm:h-64 lg:w-80 lg:h-80 rounded-2xl overflow-hidden shadow-2xl relative z-10"
               style={{ boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
               <img src={currentTrack.cover} alt={currentTrack.album} className="w-full h-full object-cover" />
             </div>
