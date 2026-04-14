@@ -103,14 +103,14 @@ export default function FullTrackView() {
     if (!volumeRef.current) return;
     const rect = volumeRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    setVolume(Math.max(0, Math.min(100, (x / rect.width) * 100)));
+    setVolume(Math.round(Math.max(0, Math.min(100, (x / rect.width) * 100))));
   }, [setVolume]);
 
   // Mouse wheel volume control
   const handleVolumeWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
     const delta = e.deltaY > 0 ? -5 : 5;
-    setVolume(Math.max(0, Math.min(100, volume + delta)));
+    setVolume(Math.round(Math.max(0, Math.min(100, volume + delta))));
   }, [volume, setVolume]);
 
   // ── Circular audio visualization using shared analyser ──

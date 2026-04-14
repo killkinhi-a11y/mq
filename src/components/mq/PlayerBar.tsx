@@ -309,57 +309,53 @@ export default function PlayerBar() {
     getAudioElement().volume = volume / 100;
   }, [volume]);
 
-  // ── MediaSession API for phone notification controls ──
+  // ── Media Session API — lock screen / notification controls ──
   useEffect(() => {
     if (!currentTrack || typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
 
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: currentTrack.title || "Неизвестный трек",
-      artist: currentTrack.artist || "Неизвестный артист",
+      title: currentTrack.title || "Unknown",
+      artist: currentTrack.artist || "Unknown",
       album: currentTrack.album || "MQ Player",
-      artwork: currentTrack.cover ? [
-        { src: currentTrack.cover, sizes: "512x512", type: "image/jpeg" }
-      ] : [],
+      artwork: currentTrack.cover ? [{ src: currentTrack.cover, sizes: "512x512", type: "image/jpeg" }] : [],
     });
 
-    const handleAction = (action: string) => {
-      switch (action) {
-        case "play":
-          useAppStore.getState().togglePlay();
-          if (!useAppStore.getState().isPlaying) useAppStore.getState().togglePlay();
-          break;
-        case "pause":
-          if (useAppStore.getState().isPlaying) useAppStore.getState().togglePlay();
-          break;
-        case "previoustrack":
-          useAppStore.getState().prevTrack();
-          break;
-        case "nexttrack":
-          useAppStore.getState().nextTrack();
-          break;
+    navigator.mediaSession.setActionHandler("play", () => {
+      const st = useAppStore.getState();
+      if (!st.isPlaying) st.togglePlay();
+    });
+    navigator.mediaSession.setActionHandler("pause", () => {
+      const st = useAppStore.getState();
+      if (st.isPlaying) st.togglePlay();
+    });
+    navigator.mediaSession.setActionHandler("previoustrack", () => {
+      useAppStore.getState().prevTrack();
+    });
+    navigator.mediaSession.setActionHandler("nexttrack", () => {
+      useAppStore.getState().nextTrack();
+    });
+    navigator.mediaSession.setActionHandler("seekto", (details) => {
+      if (details && details.seekTime !== undefined && details.fastSeek !== undefined) {
+        const audio = getAudioElement();
+        audio.currentTime = details.seekTime;
+        setProgressRef.current(details.seekTime);
       }
-    };
-
-    navigator.mediaSession.setActionHandler("play", () => handleAction("play"));
-    navigator.mediaSession.setActionHandler("pause", () => handleAction("pause"));
-    navigator.mediaSession.setActionHandler("previoustrack", () => handleAction("previoustrack"));
-    navigator.mediaSession.setActionHandler("nexttrack", () => handleAction("nexttrack"));
+    });
 
     return () => {
-      if ("mediaSession" in navigator) {
-        navigator.mediaSession.setActionHandler("play", null);
-        navigator.mediaSession.setActionHandler("pause", null);
-        navigator.mediaSession.setActionHandler("previoustrack", null);
-        navigator.mediaSession.setActionHandler("nexttrack", null);
-      }
+      navigator.mediaSession.setActionHandler("play", null);
+      navigator.mediaSession.setActionHandler("pause", null);
+      navigator.mediaSession.setActionHandler("previoustrack", null);
+      navigator.mediaSession.setActionHandler("nexttrack", null);
+      navigator.mediaSession.setActionHandler("seekto", null);
     };
-  }, [currentTrack?.id, currentTrack?.title, currentTrack?.artist]);
+  }, [currentTrack?.id]);
 
   // ── Volume mouse wheel ──────────────────────────────────
   const handleVolumeWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
     const delta = e.deltaY > 0 ? -5 : 5;
-    setVolume(Math.max(0, Math.min(100, volume + delta)));
+    setVolume(Math.round(Math.max(0, Math.min(100, volume + delta))));
   }, [volume, setVolume]);
 
   // ── Progress drag/seek ──────────────────────────────────
@@ -410,7 +406,7 @@ export default function PlayerBar() {
     if (!volumeRef.current) return;
     const rect = volumeRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    setVolume(Math.max(0, Math.min(100, (x / rect.width) * 100)));
+    setVolume(Math.round(Math.max(0, Math.min(100, (x / rect.width) * 100))));
   }, [setVolume]);
 
   const sleepMin = Math.floor(sleepTimerRemaining / 60);
@@ -612,7 +608,7 @@ export default function PlayerBar() {
       <canvas
         ref={canvasRef}
         className="w-full pointer-events-none block"
-        style={{ height: 28, opacity: isPlaying ? 0.8 : 0.15, transition: "opacity 0.3s", minHeight: 28 }}
+        style={{ height: 36, opacity: isPlaying ? 0.8 : 0.15, transition: "opacity 0.3s", minHeight: 36 }}
       />
     </motion.div>
   );

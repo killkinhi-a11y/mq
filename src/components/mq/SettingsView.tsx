@@ -23,7 +23,7 @@ export default function SettingsView() {
   const handleVolumeWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
     const delta = e.deltaY > 0 ? -3 : 3;
-    setVolume(Math.max(0, Math.min(100, volume + delta)));
+    setVolume(Math.round(Math.max(0, Math.min(100, volume + delta))));
   }, [volume, setVolume]);
 
   const themeList = Object.values(themes);

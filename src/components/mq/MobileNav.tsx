@@ -9,7 +9,7 @@ const navItems: { id: ViewType; icon: typeof Home; label: string }[] = [
   { id: "main", icon: Home, label: "Главная" },
   { id: "search", icon: Search, label: "Поиск" },
   { id: "messenger", icon: MessageCircle, label: "Чаты" },
-  { id: "history", icon: Clock, label: "История" },
+  { id: "profile", icon: User, label: "Профиль" },
   { id: "settings", icon: Settings, label: "Ещё" },
 ];
 
