@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAppStore } from "@/store/useAppStore";
 import { themes, applyThemeToDOM } from "@/lib/themes";
@@ -39,8 +39,14 @@ export default function Home() {
 
   // Apply theme to DOM
   useEffect(() => {
-    const theme = themes[currentTheme] || themes.default;
-    applyThemeToDOM(theme, customAccent || undefined);
+    const theme = themes[currentTheme];
+    if (!theme) {
+      // Reset to default if stored theme doesn't exist
+      useAppStore.getState().setTheme("default");
+      applyThemeToDOM(themes.default, customAccent || undefined);
+    } else {
+      applyThemeToDOM(theme, customAccent || undefined);
+    }
   }, [currentTheme, customAccent]);
 
   // Apply font size

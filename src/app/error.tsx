@@ -1,0 +1,95 @@
+"use client";
+
+import { useEffect } from "react";
+import { useAppStore } from "@/store/useAppStore";
+
+export default function ErrorBoundary({
+  error,
+  reset,
+}: {
+  error: Error & { digest?: string };
+  reset: () => void;
+}) {
+  useEffect(() => {
+    console.error("MQ Player Error:", error);
+  }, [error]);
+
+  const handleReset = () => {
+    // Clear corrupted localStorage data
+    try {
+      localStorage.removeItem("mq-player-store");
+    } catch {}
+    reset();
+  };
+
+  const handleFullReset = () => {
+    try {
+      localStorage.removeItem("mq-player-store");
+    } catch {}
+    window.location.href = "/";
+  };
+
+  return (
+    <div
+      className="min-h-screen flex items-center justify-center p-4"
+      style={{ backgroundColor: "var(--mq-bg, #0e0e0e)" }}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl p-6 text-center"
+        style={{
+          backgroundColor: "var(--mq-card, #1a1a1a)",
+          border: "1px solid var(--mq-border, #333)",
+        }}
+      >
+        <div
+          className="text-5xl mb-4"
+          style={{ color: "var(--mq-accent, #e03131)" }}
+        >
+          !
+        </div>
+        <h2
+          className="text-xl font-bold mb-2"
+          style={{ color: "var(--mq-text, #f5f5f5)" }}
+        >
+          Что-то пошло не так
+        </h2>
+        <p
+          className="text-sm mb-6"
+          style={{ color: "var(--mq-text-muted, #888)" }}
+        >
+          Произошла ошибка при загрузке приложения.
+          Попробуйте перезагрузить страницу.
+        </p>
+        <div className="space-y-3">
+          <button
+            onClick={handleReset}
+            className="w-full p-3 rounded-xl text-sm font-medium"
+            style={{
+              backgroundColor: "var(--mq-accent, #e03131)",
+              color: "var(--mq-text, #f5f5f5)",
+            }}
+          >
+            Перезагрузить
+          </button>
+          <button
+            onClick={handleFullReset}
+            className="w-full p-3 rounded-xl text-sm font-medium"
+            style={{
+              backgroundColor: "transparent",
+              border: "1px solid var(--mq-border, #333)",
+              color: "var(--mq-text-muted, #888)",
+            }}
+          >
+            Сбросить данные и перезагрузить
+          </button>
+        </div>
+        <p
+          className="text-xs mt-4"
+          style={{ color: "var(--mq-text-muted, #888)", opacity: 0.5 }}
+        >
+          {error.message || "Unknown error"}
+        </p>
+      </div>
+    </div>
+  );
+}
