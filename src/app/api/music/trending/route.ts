@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 /**
- * Trending tracks — iTunes for metadata, Audius for full tracks.
+ * Trending tracks — iTunes metadata + YouTube videoIds for full playback.
  */
 
 const cache = new Map<string, { data: unknown; expiry: number }>();
@@ -18,14 +18,41 @@ function setCache(key: string, data: unknown): void {
   cache.set(key, { data, expiry: Date.now() + CACHE_TTL });
 }
 
-interface ITunesTrack {
-  trackId: number;
-  trackName: string;
-  artistName: string;
-  collectionName: string;
-  artworkUrl100: string;
-  previewUrl: string;
-  trackTimeMillis: number;
+async function searchYouTubeForIds(query: string): Promise<string[]> {
+  try {
+    const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}&hl=en`;
+    const res = await fetch(searchUrl, {
+      signal: AbortSignal.timeout(8000),
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        Accept: "text/html",
+      },
+    });
+    if (!res.ok) return [];
+
+    const html = await res.text();
+    const match = html.match(/var\s+ytInitialData\s*=\s*(\{.+?\})\s*;\s*<\/script>/s);
+    if (!match) return [];
+
+    const data = JSON.parse(match[1]);
+    const contents =
+      data?.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer
+        ?.contents?.[0]?.itemSectionRenderer?.contents;
+
+    if (!Array.isArray(contents)) return [];
+
+    const ids: string[] = [];
+    for (const item of contents) {
+      const vr = item?.videoRenderer;
+      if (vr?.videoId) {
+        ids.push(vr.videoId);
+        if (ids.length >= 20) break;
+      }
+    }
+    return ids;
+  } catch {
+    return [];
+  }
 }
 
 async function fetchiTunesTrending() {
@@ -37,61 +64,22 @@ async function fetchiTunesTrending() {
     });
     if (!res.ok) return [];
     const data = await res.json();
-    const tracks: ITunesTrack[] = data.results || [];
-
-    return tracks.filter((t) => t.previewUrl).map((t) => ({
-      id: `itunes_${t.trackId}`,
-      title: t.trackName || "Unknown Track",
-      artist: t.artistName || "Unknown Artist",
-      album: t.collectionName || "Unknown Album",
-      duration: Math.round((t.trackTimeMillis || 30000) / 1000),
-      cover: (t.artworkUrl100 || "").replace("100x100bb", "500x500bb"),
-      audioUrl: t.previewUrl,
-      previewUrl: t.previewUrl,
-      source: "itunes" as const,
-    }));
+    return (data.results || [])
+      .filter((t) => t.previewUrl)
+      .map((t) => ({
+        id: `itunes_${t.trackId}`,
+        title: t.trackName || "Unknown Track",
+        artist: t.artistName || "Unknown Artist",
+        album: t.collectionName || "Unknown Album",
+        duration: Math.round((t.trackTimeMillis || 30000) / 1000),
+        cover: (t.artworkUrl100 || "").replace("100x100bb", "500x500bb"),
+        audioUrl: t.previewUrl,
+        previewUrl: t.previewUrl,
+        source: "itunes" as const,
+      }));
   } catch {
     return [];
   }
-}
-
-async function fetchAudiusTrending() {
-  const providers = [
-    "https://discoveryprovider.audius.co",
-    "https://discoveryprovider2.audius.co",
-  ];
-
-  for (const provider of providers) {
-    try {
-      const res = await fetch(
-        `${provider}/v1/tracks/trending?app_name=mqplayer&limit=25`,
-        { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(10000) }
-      );
-      if (!res.ok) continue;
-
-      const data = await res.json();
-      const tracks = data.data || [];
-      if (tracks.length === 0) continue;
-
-      return tracks.map((t: Record<string, unknown>) => {
-        const user = t.user as Record<string, unknown> | undefined;
-        return {
-          id: `audius_${t.id}`,
-          title: t.title || "Unknown Track",
-          artist: user?.name || "Unknown Artist",
-          album: "",
-          duration: (t.duration as number) || 30,
-          cover: (t.artwork as string) || "https://picsum.photos/seed/default/300/300",
-          audioUrl: `${provider}/v1/tracks/${t.id}/stream?app_name=mqplayer`,
-          previewUrl: `${provider}/v1/tracks/${t.id}/stream?app_name=mqplayer`,
-          source: "audius" as const,
-        };
-      });
-    } catch {
-      continue;
-    }
-  }
-  return [];
 }
 
 export async function GET() {
@@ -100,17 +88,21 @@ export async function GET() {
   if (cached) return NextResponse.json(cached);
 
   try {
-    // 1. Try Audius trending (full tracks!)
-    const audiusTracks = await fetchAudiusTrending();
-    if (audiusTracks.length > 0) {
-      const responseData = { tracks: audiusTracks };
-      setCache(cacheKey, responseData);
-      return NextResponse.json(responseData);
+    const itunesTracks = await fetchiTunesTrending();
+    if (itunesTracks.length === 0) {
+      return NextResponse.json({ tracks: [] });
     }
 
-    // 2. Fallback to iTunes (30s previews)
-    const itunesTracks = await fetchiTunesTrending();
-    const responseData = { tracks: itunesTracks };
+    // Search YouTube for videoIds
+    const ytIds = await searchYouTubeForIds("top hits 2025 music playlist");
+
+    const finalTracks = itunesTracks.slice(0, 20).map((track, i) => ({
+      ...track,
+      youtubeId: ytIds[i] || undefined,
+      source: ytIds[i] ? ("youtube" as const) : "itunes" as const,
+    }));
+
+    const responseData = { tracks: finalTracks };
     setCache(cacheKey, responseData);
     return NextResponse.json(responseData);
   } catch {

@@ -32,7 +32,7 @@ interface AppState {
   duration: number;
   shuffle: boolean;
   repeat: "off" | "all" | "one";
-  playbackMode: "saavn" | "deezer" | "itunes" | "audius" | "idle";
+  playbackMode: "saavn" | "deezer" | "itunes" | "audius" | "youtube" | "idle";
 
   // Sleep timer
   sleepTimerActive: boolean;
@@ -86,7 +86,7 @@ interface AppState {
   prevTrack: () => void;
   toggleShuffle: () => void;
   toggleRepeat: () => void;
-  setPlaybackMode: (mode: "saavn" | "deezer" | "itunes" | "audius" | "idle") => void;
+  setPlaybackMode: (mode: "saavn" | "deezer" | "itunes" | "audius" | "youtube" | "idle") => void;
 
   // Sleep timer actions
   startSleepTimer: (minutes: number) => void;
@@ -145,7 +145,7 @@ const initialState = {
   duration: 0,
   shuffle: false,
   repeat: "off" as "off" | "all" | "one",
-  playbackMode: "idle" as "saavn" | "deezer" | "itunes" | "audius" | "idle",
+  playbackMode: "idle" as "saavn" | "deezer" | "itunes" | "audius" | "youtube" | "idle",
   sleepTimerActive: false,
   sleepTimerMinutes: 30,
   sleepTimerRemaining: 0,

@@ -8,6 +8,7 @@ import {
   Shuffle, Music, Loader2, Moon, Clock, X, PictureInPicture2
 } from "lucide-react";
 import { formatDuration } from "@/lib/musicApi";
+import { getYouTubePlayer } from "@/lib/youtubePlayer";
 
 export default function PlayerBar() {
   const {
@@ -23,11 +24,16 @@ export default function PlayerBar() {
   const progressRef = useRef<HTMLDivElement>(null);
   const volumeRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const ytContainerRef = useRef<HTMLDivElement>(null);
 
   const [isDragging, setIsDragging] = useState(false);
   const [isLoadingTrack, setIsLoadingTrack] = useState(false);
   const [showSleepTimer, setShowSleepTimer] = useState(false);
   const [playError, setPlayError] = useState(false);
+  const [useYouTube, setUseYouTube] = useState(false);
+
+  // YouTube player singleton
+  const ytPlayer = useRef<ReturnType<typeof getYouTubePlayer> | null>(null);
 
   // Stable refs
   const nextTrackRef = useRef(nextTrack);
@@ -42,6 +48,44 @@ export default function PlayerBar() {
   useEffect(() => { currentTrackRef.current = currentTrack; }, [currentTrack]);
   useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
 
+  // Initialize YouTube player
+  useEffect(() => {
+    if (!ytContainerRef.current) return;
+    const player = getYouTubePlayer();
+    player.setContainer(ytContainerRef.current);
+    ytPlayer.current = player;
+
+    player.setCallbacks({
+      onReady: () => {
+        setIsLoadingTrack(false);
+        setPlayError(false);
+      },
+      onStateChange: (state) => {
+        if (state === "playing") {
+          setIsLoadingTrack(false);
+          setPlayError(false);
+        } else if (state === "ended") {
+          nextTrackRef.current();
+        }
+      },
+      onProgress: (currentTime, dur) => {
+        if (!isDragging) {
+          setProgressRef.current(currentTime);
+          if (dur && isFinite(dur)) setDurationRef.current(dur);
+        }
+      },
+      onError: (errorCode) => {
+        console.warn("[PlayerBar] YouTube error:", errorCode);
+        // Error 150 = embedding blocked, 101 = not found, 2 = invalid param
+        // Fall back to HTML5 audio
+        setUseYouTube(false);
+        setPlayError(false);
+        setIsLoadingTrack(true);
+        loadWithHtml5();
+      },
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Sleep timer ──────────────────────────────────────────
   useEffect(() => {
     if (!sleepTimerActive) return;
@@ -53,6 +97,7 @@ export default function PlayerBar() {
   useEffect(() => {
     const audio = new Audio();
     audio.preload = "auto";
+    audio.crossOrigin = "anonymous";
     audioRef.current = audio;
 
     const onTimeUpdate = () => {
@@ -121,6 +166,50 @@ export default function PlayerBar() {
     };
   }, []);
 
+  // ── Load with HTML5 Audio (fallback) ───────────────────
+  const loadWithHtml5 = useCallback(() => {
+    const track = currentTrackRef.current;
+    if (!track) return;
+
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    // Stop YouTube if running
+    if (ytPlayer.current) {
+      try { ytPlayer.current.destroy(); } catch { /* ignore */ }
+    }
+
+    let audioSrc = "";
+    if (track.audioUrl) audioSrc = track.audioUrl;
+    else if (track.previewUrl) audioSrc = track.previewUrl;
+
+    if (!audioSrc) {
+      setIsLoadingTrack(false);
+      setPlayError(true);
+      return;
+    }
+
+    // Determine source type
+    if (audioSrc.includes("itunes") || audioSrc.includes("apple") || audioSrc.includes("mzstatic")) {
+      setPlaybackMode("itunes");
+    } else if (audioSrc.includes("deezer") || audioSrc.includes("cdns-preview")) {
+      setPlaybackMode("deezer");
+    } else if (audioSrc.includes("saavn") || audioSrc.includes("jiosaavn") || audioSrc.includes("aac.saavncdn")) {
+      setPlaybackMode("saavn");
+    } else {
+      setPlaybackMode("saavn"); // unknown but plays
+    }
+
+    audio.pause();
+    audio.src = audioSrc;
+    audio.load();
+
+    audio.play().catch(() => {
+      setPlayError(true);
+      setIsLoadingTrack(false);
+    });
+  }, [setPlaybackMode]);
+
   // ── Handle track change ─────────────────────────────────
   const prevTrackIdRef = useRef<string | null>(null);
 
@@ -138,67 +227,83 @@ export default function PlayerBar() {
       setProgress(0);
     }
 
-    const loadAndPlay = async () => {
+    const loadTrack = async () => {
       setIsLoadingTrack(true);
       setPlayError(false);
+
+      // Stop current playback
       audio.pause();
       audio.src = "";
-
-      // Determine audio source
-      let audioSrc = "";
-
-      if (currentTrack.audioUrl) {
-        audioSrc = currentTrack.audioUrl;
-      } else if (currentTrack.previewUrl) {
-        audioSrc = currentTrack.previewUrl;
+      if (ytPlayer.current) {
+        try { ytPlayer.current.destroy(); } catch { /* ignore */ }
       }
 
-      if (!audioSrc) {
-        setIsLoadingTrack(false);
-        setPlayError(true);
-        return;
-      }
+      // Strategy: try YouTube first if youtubeId is available
+      if (currentTrack.youtubeId) {
+        setUseYouTube(true);
+        setPlaybackMode("youtube");
 
-      // Determine source type
-      if (audioSrc.includes("audius")) {
-        setPlaybackMode("audius");
-      } else if (audioSrc.includes("itunes") || audioSrc.includes("apple")) {
-        setPlaybackMode("itunes");
-      } else {
-        setPlaybackMode("audius");
-      }
-
-      try {
-        audio.src = audioSrc;
-        audio.load();
-
-        const playPromise = audio.play();
-        if (playPromise) await playPromise;
-      } catch (err) {
-        console.warn("[PlayerBar] Play failed:", err);
-
-        // If primary source fails, try preview
-        if (currentTrack.previewUrl && currentTrack.previewUrl !== audioSrc) {
-          try {
-            audio.src = currentTrack.previewUrl;
-            audio.load();
-            setPlaybackMode("itunes");
-            await audio.play();
-          } catch {
-            setPlayError(true);
-          }
-        } else {
-          setPlayError(true);
+        const player = ytPlayer.current || getYouTubePlayer();
+        if (!ytPlayer.current) {
+          player.setContainer(ytContainerRef.current!);
+          player.setCallbacks({
+            onReady: () => {
+              setIsLoadingTrack(false);
+              setPlayError(false);
+            },
+            onStateChange: (state) => {
+              if (state === "playing") {
+                setIsLoadingTrack(false);
+                setPlayError(false);
+              } else if (state === "ended") {
+                nextTrackRef.current();
+              }
+            },
+            onProgress: (currentTime, dur) => {
+              if (!isDragging) {
+                setProgressRef.current(currentTime);
+                if (dur && isFinite(dur)) setDurationRef.current(dur);
+              }
+            },
+            onError: () => {
+              console.warn("[PlayerBar] YouTube failed, falling back to HTML5");
+              setUseYouTube(false);
+              setPlaybackMode("itunes");
+              loadWithHtml5();
+            },
+          });
+          ytPlayer.current = player;
         }
+
+        const loaded = await player.loadVideo(currentTrack.youtubeId, true);
+        if (!loaded) {
+          // YouTube failed — fallback
+          setUseYouTube(false);
+          loadWithHtml5();
+        }
+      } else {
+        // No YouTube ID — use HTML5 audio
+        setUseYouTube(false);
+        loadWithHtml5();
       }
+
       setIsLoadingTrack(false);
     };
 
-    loadAndPlay();
-  }, [currentTrack?.id]);
+    loadTrack();
+  }, [currentTrack?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Handle play/pause ───────────────────────────────────
   useEffect(() => {
+    if (useYouTube && ytPlayer.current) {
+      if (isPlaying) {
+        ytPlayer.current.play();
+      } else {
+        ytPlayer.current.pause();
+      }
+      return;
+    }
+
     const audio = audioRef.current;
     if (!audio || !audio.src || audio.readyState < 2) return;
 
@@ -209,12 +314,13 @@ export default function PlayerBar() {
     } else {
       audio.pause();
     }
-  }, [isPlaying]);
+  }, [isPlaying, useYouTube]);
 
   // ── Handle volume ───────────────────────────────────────
   useEffect(() => {
     const audio = audioRef.current;
     if (audio) audio.volume = volume / 100;
+    if (ytPlayer.current) ytPlayer.current.setVolume(volume);
   }, [volume]);
 
   // ── Progress drag/seek ──────────────────────────────────
@@ -225,8 +331,13 @@ export default function PlayerBar() {
     const pct = Math.max(0, Math.min(1, x / rect.width));
     const newTime = pct * duration;
     setProgress(newTime);
-    if (audioRef.current) audioRef.current.currentTime = newTime;
-  }, [duration, setProgress]);
+
+    if (useYouTube && ytPlayer.current) {
+      ytPlayer.current.seekTo(newTime);
+    } else if (audioRef.current) {
+      audioRef.current.currentTime = newTime;
+    }
+  }, [duration, setProgress, useYouTube]);
 
   const handleProgressMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -277,14 +388,21 @@ export default function PlayerBar() {
 
   const modeLabel = (() => {
     if (isLoadingTrack) return null;
-    if (playbackMode === "audius") {
+    if (playbackMode === "youtube") {
+      return (
+        <span style={{ color: "#ff4444", marginLeft: 6, fontSize: 10 }}>
+          &#9654; Полный трек
+        </span>
+      );
+    }
+    if (playbackMode === "audius" || playbackMode === "saavn") {
       return (
         <span style={{ color: "#4ade80", marginLeft: 6, fontSize: 10 }}>
           &#9679; Полный трек
         </span>
       );
     }
-    if (playbackMode === "itunes") {
+    if (playbackMode === "itunes" || playbackMode === "deezer") {
       return (
         <span style={{ color: "var(--mq-text-muted)", marginLeft: 6, fontSize: 10 }}>
           Превью 30с
@@ -294,10 +412,11 @@ export default function PlayerBar() {
     return null;
   })();
 
-  const sourceTag = currentTrack.source === "audius" ? "Audius"
+  const sourceTag = playbackMode === "youtube" ? "YouTube"
     : currentTrack.source === "itunes" ? "iTunes"
     : currentTrack.source === "deezer" ? "Deezer"
     : currentTrack.source === "saavn" ? "Saavn"
+    : currentTrack.source === "audius" ? "Audius"
     : "";
 
   return (
@@ -484,6 +603,9 @@ export default function PlayerBar() {
           </div>
         </div>
       </div>
+
+      {/* Hidden YouTube player container */}
+      <div ref={ytContainerRef} style={{ position: "absolute", width: "1px", height: "1px", overflow: "hidden", opacity: 0, pointerEvents: "none" }} />
     </motion.div>
   );
 }

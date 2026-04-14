@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 /**
  * Unified Search API
- * Uses iTunes for metadata/covers, Audius for full tracks, Deezer as fallback.
+ * Sources: iTunes (metadata/covers), YouTube (full-track video IDs), Deezer (fallback).
+ * Playback strategy: YouTube IFrame for full tracks, iTunes preview as fallback.
  */
 
 const cache = new Map<string, { data: unknown; expiry: number }>();
@@ -29,16 +30,6 @@ interface ITunesTrack {
   trackTimeMillis: number;
 }
 
-interface AudiusTrack {
-  id: string;
-  title: string;
-  duration: number;
-  artwork?: string;
-  user: { name: string; id: string };
-  stream?: string;
-  genre: string;
-}
-
 // iTunes Search — reliable metadata + covers + 30s preview
 async function searchiTunes(query: string): Promise<Array<{
   id: string;
@@ -50,6 +41,7 @@ async function searchiTunes(query: string): Promise<Array<{
   audioUrl: string;
   previewUrl: string;
   source: "itunes";
+  youtubeId?: string;
 }>> {
   try {
     const url = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=music&limit=20`;
@@ -75,42 +67,89 @@ async function searchiTunes(query: string): Promise<Array<{
         previewUrl: t.previewUrl,
         source: "itunes" as const,
       }));
-  } catch {
+  } catch (e) {
+    console.warn("[Search] iTunes error:", e);
     return [];
   }
 }
 
-// Audius Search — full tracks with streaming
-async function searchAudius(query: string): Promise<AudiusTrack[]> {
+// YouTube search — scrape YouTube to find videoIds for full-track playback
+async function searchYouTube(query: string): Promise<Map<string, string>> {
   try {
-    // Audius has multiple discovery providers, try a few
-    const providers = [
-      "https://discoveryprovider.audius.co",
-      "https://discoveryprovider2.audius.co",
-    ];
+    const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(
+      query + " official audio"
+    )}&hl=en`;
 
-    for (const provider of providers) {
-      try {
-        const res = await fetch(
-          `${provider}/v1/tracks/search?query=${encodeURIComponent(query)}&app_name=mqplayer&limit=20`,
-          { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(10000) }
-        );
-        if (!res.ok) continue;
+    const res = await fetch(searchUrl, {
+      signal: AbortSignal.timeout(8000),
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+        Accept: "text/html,application/xhtml+xml",
+      },
+    });
 
-        const data = await res.json();
-        const tracks: AudiusTrack[] = data.data || [];
-        if (tracks.length > 0) return tracks;
-      } catch {
-        continue;
+    if (!res.ok) return new Map();
+
+    const html = await res.text();
+
+    // Extract ytInitialData
+    const match = html.match(/var\s+ytInitialData\s*=\s*(\{.+?\})\s*;\s*<\/script>/s);
+    if (!match) return new Map();
+
+    const data = JSON.parse(match[1]);
+
+    const contents =
+      data?.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer
+        ?.contents?.[0]?.itemSectionRenderer?.contents;
+
+    if (!Array.isArray(contents)) return new Map();
+
+    const videoIds: string[] = [];
+    for (const item of contents) {
+      const vr = item?.videoRenderer;
+      if (!vr?.videoId) continue;
+
+      // Extract title for matching
+      const title = vr.title?.runs?.[0]?.text || vr.title?.simpleText || "";
+      const channelName = vr.longBylineText?.runs?.[0]?.text || vr.shortBylineText?.runs?.[0]?.text || "";
+
+      // Parse duration
+      const lengthText = vr.lengthText?.simpleText || "";
+      const durationParts = lengthText.split(":").map(Number);
+      let durationSec = 0;
+      if (durationParts.length === 2) durationSec = durationParts[0] * 60 + durationParts[1];
+      else if (durationParts.length === 3) durationSec = durationParts[0] * 3600 + durationParts[1] * 60 + durationParts[2];
+
+      // Accept 30s - 15min
+      if (durationSec >= 30 && durationSec <= 900) {
+        videoIds.push(vr.videoId);
+        // Store for title matching later
+        ytTitleMap.set(vr.videoId, { title, channel: channelName });
       }
+
+      if (videoIds.length >= 15) break;
     }
-    return [];
-  } catch {
-    return [];
+
+    // Build a simple map: "query" → first videoId (used for tracks without exact match)
+    const map = new Map<string, string>();
+    for (const id of videoIds) {
+      map.set(id, id); // store by videoId for reference
+    }
+    if (videoIds.length > 0) {
+      map.set("__first__", videoIds[0]);
+    }
+    return map;
+  } catch (e) {
+    console.warn("[Search] YouTube error:", e);
+    return new Map();
   }
 }
 
-// Deezer Search — fallback for metadata
+// Track YouTube video titles for matching
+const ytTitleMap = new Map<string, { title: string; channel: string }>();
+
+// Deezer Search — fallback metadata
 async function searchDeezer(query: string) {
   try {
     const res = await fetch(
@@ -121,8 +160,7 @@ async function searchDeezer(query: string) {
 
     const data = await res.json();
     const tracks = data.data || [];
-
-    if (tracks.length === 0) return []; // Deezer region-blocked
+    if (tracks.length === 0) return [];
 
     return tracks.map((t: Record<string, unknown>) => {
       const album = t.album as Record<string, unknown> | undefined;
@@ -139,9 +177,14 @@ async function searchDeezer(query: string) {
         source: "deezer" as const,
       };
     });
-  } catch {
+  } catch (e) {
+    console.warn("[Search] Deezer error:", e);
     return [];
   }
+}
+
+function normalize(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 export async function GET(request: NextRequest) {
@@ -157,108 +200,102 @@ export async function GET(request: NextRequest) {
   if (cached) return NextResponse.json(cached);
 
   try {
-    // 1. Get metadata from iTunes (reliable)
-    const itunesResults = await searchiTunes(query.trim());
+    // Run iTunes + YouTube in parallel
+    const [itunesResults, ytResult, deezerResults] = await Promise.allSettled([
+      searchiTunes(query.trim()),
+      searchYouTube(query.trim()),
+      searchDeezer(query.trim()),
+    ]);
 
-    // 2. Try to match with Audius full tracks
-    let finalTracks;
+    const itunesTracks = itunesResults.status === "fulfilled" ? itunesResults.value : [];
+    const ytMap = ytResult.status === "fulfilled" ? ytResult.value : new Map<string, string>();
+    const deezerTracks = deezerResults.status === "fulfilled" ? deezerResults.value : [];
 
-    if (itunesResults.length > 0) {
-      // Get Audius results to find full-track stream URLs
-      const audiusResults = await searchAudius(query.trim());
+    // Collect all YouTube videoIds in order
+    const ytVideoIds: string[] = [];
+    for (const [k, v] of ytMap) {
+      if (k !== "__first__") ytVideoIds.push(k);
+    }
+    const ytFirstId = ytMap.get("__first__");
 
-      // Build a map of Audius tracks by normalized title for matching
-      const audiusMap = new Map<string, AudiusTrack>();
-      for (const at of audiusResults) {
-        const normTitle = at.title.toLowerCase().replace(/[^a-z0-9]/g, "");
-        audiusMap.set(normTitle, at);
+    // Match iTunes tracks with YouTube videoIds
+    const finalTracks = itunesTracks.map((itunes, index) => {
+      const normTitle = normalize(itunes.title);
+      const normArtist = normalize(itunes.artist);
+
+      // Try to find matching YouTube video
+      let matchedYtId: string | undefined;
+
+      // 1. Exact title match with YouTube
+      for (const vid of ytVideoIds) {
+        const ytInfo = ytTitleMap.get(vid);
+        if (!ytInfo) continue;
+        const ytNorm = normalize(ytInfo.title);
+        if (ytNorm === normTitle || ytNorm.includes(normTitle) || normTitle.includes(ytNorm)) {
+          // Verify artist similarity
+          const ytChannel = normalize(ytInfo.channel);
+          if (ytChannel.includes(normArtist.substring(0, 5)) || normArtist.includes(ytChannel.substring(0, 5)) || normArtist.substring(0, 5) === ytChannel.substring(0, 5)) {
+            matchedYtId = vid;
+            break;
+          }
+          // Accept title match even without artist match (for first few results)
+          if (index < 5) {
+            matchedYtId = vid;
+            break;
+          }
+        }
       }
 
-      // Merge: iTunes metadata + Audius audio URLs
-      finalTracks = itunesResults.map((itunes) => {
-        const normTitle = itunes.title.toLowerCase().replace(/[^a-z0-9]/g, "");
-        const normArtist = itunes.artist.toLowerCase().replace(/[^a-z0-9]/g, "");
+      // 2. Assign sequential YouTube IDs to remaining tracks
+      if (!matchedYtId && ytVideoIds.length > index) {
+        matchedYtId = ytVideoIds[index];
+      }
 
-        // Try to find matching Audius track
-        let audiusTrack = audiusMap.get(normTitle);
-        if (!audiusTrack) {
-          // Fuzzy match: check if Audius title contains key words from iTunes
-          for (const [key, at] of audiusMap) {
-            const audiusNorm = key;
-            if (audiusNorm.includes(normTitle.split(" ")[0]) ||
-                normTitle.includes(audiusNorm.split(" ")[0])) {
-              audiusTrack = at;
-              break;
-            }
-          }
-        }
+      // 3. Fallback: use first YouTube result for first track
+      if (!matchedYtId && index === 0 && ytFirstId) {
+        matchedYtId = ytFirstId;
+      }
 
-        if (audiusTrack) {
-          const provider = "https://discoveryprovider.audius.co";
-          return {
-            ...itunes,
-            audioUrl: `${provider}/v1/tracks/${audiusTrack.id}/stream?app_name=mqplayer`,
-            source: "audius" as const,
-            duration: audiusTrack.duration > 0 ? audiusTrack.duration : itunes.duration,
-          };
-        }
+      return {
+        ...itunes,
+        youtubeId: matchedYtId,
+        audioUrl: itunes.previewUrl, // fallback audio
+        source: matchedYtId ? ("youtube" as const) : itunes.source,
+      };
+    });
 
-        // No Audius match — use iTunes preview as audioUrl
-        return {
-          ...itunes,
-          audioUrl: itunes.previewUrl,
-          source: "itunes" as const,
-        };
-      });
-    } else {
-      // iTunes failed, try Deezer
-      const deezerResults = await searchDeezer(query.trim());
-      if (deezerResults.length > 0) {
-        // Try to find Audius tracks
-        const audiusResults = await searchAudius(query.trim());
-        const audiusMap = new Map<string, AudiusTrack>();
-        for (const at of audiusResults) {
-          audiusMap.set(at.title.toLowerCase().replace(/[^a-z0-9]/g, ""), at);
-        }
+    // If very few results, add Deezer tracks too
+    if (finalTracks.length < 5 && deezerTracks.length > 0) {
+      const existingTitles = new Set(finalTracks.map((t) => normalize(t.title)));
+      let ytIdx = finalTracks.length; // continue assigning from where we left off
 
-        finalTracks = deezerResults.map((dz) => {
-          const normTitle = dz.title.toLowerCase().replace(/[^a-z0-9]/g, "");
-          const audiusTrack = audiusMap.get(normTitle);
-          if (audiusTrack) {
-            const provider = "https://discoveryprovider.audius.co";
-            return {
-              ...dz,
-              audioUrl: `${provider}/v1/tracks/${audiusTrack.id}/stream?app_name=mqplayer`,
-              source: "audius" as const,
-            };
-          }
-          return {
-            ...dz,
-            audioUrl: dz.previewUrl,
-          };
+      for (const dz of deezerTracks) {
+        if (existingTitles.has(normalize(dz.title))) continue;
+        const ytId = ytVideoIds.length > ytIdx ? ytVideoIds[ytIdx] : undefined;
+        ytIdx++;
+        finalTracks.push({
+          ...dz,
+          youtubeId: ytId,
+          audioUrl: dz.previewUrl,
+          source: ytId ? ("youtube" as const) : dz.source,
         });
-      } else {
-        // Both failed, try Audius alone
-        const audiusResults = await searchAudius(query.trim());
-        const provider = "https://discoveryprovider.audius.co";
-        finalTracks = audiusResults.map((at) => ({
-          id: `audius_${at.id}`,
-          title: at.title || "Unknown Track",
-          artist: at.user?.name || "Unknown Artist",
-          album: "",
-          duration: at.duration || 30,
-          cover: at.artwork || "https://picsum.photos/seed/default/300/300",
-          audioUrl: `${provider}/v1/tracks/${at.id}/stream?app_name=mqplayer`,
-          previewUrl: `${provider}/v1/tracks/${at.id}/stream?app_name=mqplayer`,
-          source: "audius" as const,
-        }));
       }
     }
 
-    const responseData = { tracks: finalTracks };
+    // Deduplicate
+    const seen = new Set<string>();
+    const deduped = finalTracks.filter((t) => {
+      const key = `${normalize(t.title)}:${normalize(t.artist)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    const responseData = { tracks: deduped.slice(0, 30) };
     setCache(cacheKey, responseData);
     return NextResponse.json(responseData);
-  } catch {
+  } catch (e) {
+    console.error("[Search] Fatal error:", e);
     return NextResponse.json({ tracks: [] }, { status: 200 });
   }
 }
