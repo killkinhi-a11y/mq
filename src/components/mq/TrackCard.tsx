@@ -11,10 +11,10 @@ import ContextMenu from "./ContextMenu";
 interface TrackCardProps {
   track: Track;
   index?: number;
-  allTracks?: Track[];
+  queue?: Track[];
 }
 
-export default function TrackCard({ track, index = 0, allTracks }: TrackCardProps) {
+export default function TrackCard({ track, index = 0, queue }: TrackCardProps) {
   const { currentTrack, isPlaying, playTrack, togglePlay, animationsEnabled,
     toggleLike, toggleDislike, isTrackLiked, isTrackDisliked } = useAppStore();
   const isActive = currentTrack?.id === track.id;
@@ -27,7 +27,7 @@ export default function TrackCard({ track, index = 0, allTracks }: TrackCardProp
     if (isActive) {
       togglePlay();
     } else {
-      playTrack(track, allTracks || [track]);
+      playTrack(track, queue || [track]);
     }
   };
 
