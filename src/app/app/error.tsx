@@ -13,18 +13,70 @@ export default function ErrorBoundary({
 
   useEffect(() => {
     console.error("[MQ Error]", errorMsg);
+
+    // Auto-detect stale-data errors and force-clear everything + reload
+    const stalePatterns = [
+      "is not defined",
+      "is not a function",
+      "Cannot read propert",
+      "hydration",
+      "localStorage",
+    ];
+    const isStaleError = stalePatterns.some((p) => errorMsg.includes(p));
+
+    if (isStaleError) {
+      console.warn("[MQ Error] Detected stale-data error, auto-clearing...");
+      // Clear all mq-related storage
+      try {
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && (k.includes("mq") || k.includes("MQ") || k.includes("zustand"))) {
+            keysToRemove.push(k);
+          }
+        }
+        keysToRemove.forEach((k) => localStorage.removeItem(k));
+      } catch {}
+      try { sessionStorage.clear(); } catch {}
+      // Unregister service workers
+      if (navigator.serviceWorker) {
+        navigator.serviceWorker.getRegistrations().then((regs) => {
+          regs.forEach((r) => r.unregister());
+        });
+      }
+      // Clear Cache API
+      if (window.caches) {
+        window.caches.keys().then((ks) => {
+          Promise.all(ks.map((k) => window.caches.delete(k))).then(() => {
+            // Force reload with cache-bust after clearing caches
+            const bust = Date.now();
+            window.location.replace("/app?_r=" + bust);
+          });
+        });
+        return;
+      }
+      // No Cache API — reload directly
+      window.location.replace("/app?_r=" + Date.now());
+    }
   }, [errorMsg]);
 
   const handleReset = useCallback(() => {
-    // Only clear the app store, NOT all localStorage
-    try { localStorage.removeItem("mq-store-v4"); } catch {}
     reset();
   }, [reset]);
 
   const handleFullReset = useCallback(() => {
-    // Clear only the app store, then hard reload
-    try { localStorage.removeItem("mq-store-v4"); } catch {}
-    window.location.href = "/";
+    // Clear all mq-related storage
+    try {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && (k.includes("mq") || k.includes("MQ") || k.includes("zustand"))) {
+          keysToRemove.push(k);
+        }
+      }
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+    } catch {}
+    window.location.replace("/app?_r=" + Date.now());
   }, []);
 
   return (
@@ -55,7 +107,8 @@ export default function ErrorBoundary({
           className="text-sm mb-6"
           style={{ color: "var(--mq-text-muted, #888)" }}
         >
-          Произошла ошибка при загрузке приложения.
+          Произошла ошибка при загрузке. Если ошибка не исчезает — откройте в
+          приватном окне (Ctrl+Shift+N) или очистите кэш браузера.
         </p>
         <div className="space-y-3">
           <button

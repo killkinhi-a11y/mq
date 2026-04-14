@@ -1,7 +1,8 @@
 #!/bin/bash
 # MQ Player server keepalive & restart script
-STANDALONE_DIR="/home/z/my-project/.next/standalone"
-LOG="/tmp/mq-server.log"
+PROJECT_DIR="/home/z/my-project"
+STANDALONE_DIR="$PROJECT_DIR/.next/standalone"
+LOG="$PROJECT_DIR/server.log"
 PORT=3000
 
 force_restart() {
@@ -11,13 +12,13 @@ force_restart() {
   sleep 2
 
   # Ensure static files are up to date
-  cp -r /home/z/my-project/public "$STANDALONE_DIR/public" 2>/dev/null
-  cp -r /home/z/my-project/.next/static "$STANDALONE_DIR/.next/static" 2>/dev/null
+  cp -r "$PROJECT_DIR/public" "$STANDALONE_DIR/public" 2>/dev/null
+  cp -r "$PROJECT_DIR/.next/static" "$STANDALONE_DIR/.next/static" 2>/dev/null
 
   echo "[restart] Starting server..."
-  # Use subshell to fully detach — bare & gets killed when parent shell exits
+  # Use subshell to fully detach from this shell
   ( cd "$STANDALONE_DIR" && PORT=$PORT nohup node server.js </dev/null > "$LOG" 2>&1 & )
-  sleep 4
+  sleep 5
 
   local_code=$(curl -s --connect-timeout 5 -o /dev/null -w '%{http_code}' http://localhost:$PORT 2>/dev/null)
   if echo "$local_code" | grep -qE "^(200|307)$"; then

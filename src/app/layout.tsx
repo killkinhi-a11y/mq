@@ -34,21 +34,36 @@ export default function RootLayout({
   return (
     <html lang="ru" suppressHydrationWarning>
       <head>
+        <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+        <meta http-equiv="Pragma" content="no-cache" />
+        <meta http-equiv="Expires" content="0" />
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){
-              // === NUCLEAR CACHE-BUST v4 ===
-              // This script runs BEFORE React. Kills ALL old store keys.
-              var oldKeys=["mq-player-store","mq-store-v4","mq-store"];
-              var cleared=false;
+              // === NUCLEAR CACHE-BUST v5 ===
+              // This script runs BEFORE React. Kills ALL old store keys and service workers.
               try{
-                for(var i=0;i<oldKeys.length;i++){
-                  try{localStorage.removeItem(oldKeys[i])}catch(x){}
+                // 1. Clear ALL localStorage keys that could be stale
+                var keysToRemove=[];
+                for(var i=0;i<localStorage.length;i++){
+                  var k=localStorage.key(i);
+                  if(k && (k.indexOf('mq')>=0 || k.indexOf('MQ')>=0 || k.indexOf('zustand')>=0)){
+                    keysToRemove.push(k);
+                  }
                 }
-                cleared=true;
+                for(var j=0;j<keysToRemove.length;j++){
+                  try{localStorage.removeItem(keysToRemove[j])}catch(x){}
+                }
               }catch(e){}
-              // Also clear sessionStorage and Cache API
+              // 2. Clear sessionStorage
               try{sessionStorage.clear()}catch(e){}
+              // 3. Unregister ALL service workers (they cache old JS!)
+              if(navigator.serviceWorker){
+                navigator.serviceWorker.getRegistrations().then(function(regs){
+                  regs.forEach(function(r){r.unregister()});
+                });
+              }
+              // 4. Clear Cache API
               if(window.caches){
                 window.caches.keys().then(function(ks){
                   ks.forEach(function(k){window.caches.delete(k)});
