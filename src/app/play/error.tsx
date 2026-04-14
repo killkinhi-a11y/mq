@@ -15,11 +15,12 @@ export default function ErrorBoundary({
     console.error("[MQ Error]", errorMsg);
 
     // Auto-detect stale-data errors and force-clear everything + reload
+    // Note: do NOT include "hydration" — React auto-recovers from hydration mismatches.
+    // Catching hydration here causes an infinite reload loop.
     const stalePatterns = [
       "is not defined",
       "is not a function",
       "Cannot read propert",
-      "hydration",
       "localStorage",
     ];
     const isStaleError = stalePatterns.some((p) => errorMsg.includes(p));

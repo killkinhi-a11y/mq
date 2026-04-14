@@ -50,8 +50,12 @@ export default function MessengerView() {
   const [contextMenuMsgId, setContextMenuMsgId] = useState<{ id: string; x: number; y: number } | null>(null);
   const [showNewChatDialog, setShowNewChatDialog] = useState(false);
   const [newChatSearch, setNewChatSearch] = useState("");
+  const [mounted, setMounted] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Prevent hydration mismatch
+  useEffect(() => { setMounted(true); }, []);
 
   // Fetch real users on mount
   const [allUsers, setAllUsers] = useState<FetchedUser[]>([]);
@@ -245,19 +249,33 @@ export default function MessengerView() {
 
   const handleSend = async () => {
     if (!inputText.trim() || !selectedContactId || !userId) return;
+    try {
+      const encryptedContent = await simulateEncrypt(inputText.trim());
+      const msg = {
+        id: Date.now().toString(),
+        content: encryptedContent,
+        senderId: userId,
+        receiverId: selectedContactId,
+        encrypted: true,
+        createdAt: new Date().toISOString(),
+        senderName: `@${username || "user"}`,
+      };
 
-    const encryptedContent = await simulateEncrypt(inputText.trim());
-    const msg = {
-      id: Date.now().toString(),
-      content: encryptedContent,
-      senderId: userId,
-      receiverId: selectedContactId,
-      encrypted: true,
-      createdAt: new Date().toISOString(),
-      senderName: `@${username || "user"}`,
-    };
-
-    addMessage(msg);
+      addMessage(msg);
+    } catch (err) {
+      console.error("[MQ Messenger] Failed to send message:", err);
+      // Fallback: send without encryption
+      const msg = {
+        id: Date.now().toString(),
+        content: inputText.trim(),
+        senderId: userId,
+        receiverId: selectedContactId,
+        encrypted: false,
+        createdAt: new Date().toISOString(),
+        senderName: `@${username || "user"}`,
+      };
+      addMessage(msg);
+    }
     setInputText("");
     setShowEmojis(false);
   };
@@ -350,6 +368,16 @@ export default function MessengerView() {
     setShowNewChatDialog(false);
     setNewChatSearch("");
   };
+
+  // Prevent hydration mismatch — show spinner until client-side mounted
+  if (!mounted) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: "var(--mq-bg)" }}>
+        <div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin"
+          style={{ borderColor: "var(--mq-accent)", borderTopColor: "transparent" }} />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row" style={{ backgroundColor: "var(--mq-bg)" }}>
