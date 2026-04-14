@@ -93,3 +93,131 @@ Stage Summary:
 - HTML5 Audio is now the sole audio engine (YouTube IFrame only loaded as last resort)
 - YouTube IFrame code is now lazy-loaded (dynamic import) for better initial bundle size
 - Zero ESLint errors
+
+---
+Task ID: massive-update-v2
+Agent: main
+Task: Replace iTunes with Deezer API, add full-screen player, likes/dislikes, PiP mode, profiles, messenger upgrades, sleep timer inline, fix progress bar
+
+Work Log:
+
+1. **Store (useAppStore.ts)** — Complete overhaul:
+   - Removed "sleep" from ViewType, added "profile"
+   - Added: isFullTrackViewOpen, likedTrackIds, dislikedTrackIds, isPiPActive, playbackMode, similarTracks, similarTracksLoading
+   - Added actions: toggleLike, toggleDislike, isTrackLiked, isTrackDisliked, setFullTrackViewOpen, setPiPActive, setPlaybackMode, setSimilarTracks, setSimilarTracksLoading
+   - Persisted: likedTrackIds, dislikedTrackIds in partialize
+
+2. **musicApi.ts** — Deezer data format:
+   - Updated Track interface: added `source: "deezer" | "youtube" | "itunes"`
+   - Updated Contact interface: added `username` field
+   - Updated mockContacts with usernames
+   - Added `genreDeezerIds` mapping
+   - Added `getRecommendations()` function
+   - Removed iTunes-specific transform functions
+
+3. **API Routes — Rewritten for Deezer**:
+   - `/api/music/search` — Deezer Search API (`api.deezer.com/search`), 5-min cache
+   - `/api/music/trending` — Deezer Chart API (`api.deezer.com/chart/0/tracks`), 10-min cache
+   - `/api/music/recommendations` — NEW route, Deezer charts by genre ID with random genre merging
+   - `/api/music/genre` — Deezer search by genre keyword
+   - `/api/music/youtube` — KEPT unchanged (YouTube scraping + Piped for audio)
+
+4. **PlayerBar.tsx** — Major rewrite:
+   - FIXED progress bar: proper document-level mousemove/mouseup tracking for drag
+   - Added touch support (touchstart/touchmove/touchend)
+   - Always-visible drag thumb on mobile (not just hover)
+   - Source tags: "Deezer" / "YouTube" shown per track
+   - Inline sleep timer: popover with 15/30/45/60 min presets, remaining time badge
+   - PiP toggle button
+   - Like/dislike via full-screen view
+
+5. **FullTrackView.tsx** — NEW component:
+   - Full-screen overlay with blur background from album art
+   - Large album art (64-80rem), track info, progress bar with time
+   - Full controls: shuffle, prev, play/pause, next, repeat, volume
+   - Like/Dislike buttons with visual state
+   - "Похожие треки" panel (fetches similar from search API)
+   - Close button, source tag
+
+6. **ContextMenu.tsx** — NEW component:
+   - Right-click context menu: Воспроизвести, Добавить в очередь, Похожие треки, Лайк, Дизлайк, Открыть артиста, Копировать название
+   - Auto-positioning to stay within viewport
+   - Close on click-outside or Escape
+
+7. **TrackCard.tsx** — Updated:
+   - Right-click handler (onContextMenu) for context menu
+   - "..." more button (3 dots) opens context menu
+   - Like/dislike icons with filled/outline states
+   - Source tag badge (Deezer/YouTube)
+
+8. **MainView.tsx** — Updated:
+   - REMOVED genreSections, fetchGenres useEffect, all genre rendering
+   - ADDED "Рекомендации для тебя" section with refresh button
+   - Fetches from `/api/music/recommendations?genre=random`
+   - Shows 8 recommended tracks
+   - Stats card shows likedTrackIds.count
+
+9. **page.tsx** — Updated routing:
+   - REMOVED SleepTimerView import and "sleep" case
+   - ADDED ProfileView import and "profile" case
+   - ADDED FullTrackView and PiPPlayer overlay components
+
+10. **MobileNav.tsx** — Updated:
+    - Replaced "Таймер" tab (Moon icon) with "Профиль" tab (User icon)
+
+11. **NavBar.tsx** — Updated:
+    - Replaced "Таймер сна" nav item with profile view
+    - Added avatar + @username in top-right corner
+    - Clicking opens profile view
+
+12. **ProfileView.tsx** — NEW component:
+    - Avatar display with click-to-change (file picker, resize to 200px, base64)
+    - Editable @username with @ prefix
+    - Email display
+    - Stats: liked tracks count, messages count
+    - Link to settings, logout button
+
+13. **AuthView.tsx** — Updated:
+    - Username field with @ prefix in register form
+    - Prevents @ and spaces in username
+    - Shows preview: "Отображается как @username"
+
+14. **MessengerView.tsx** — Full implementation:
+    - @username display for all contacts
+    - Chat bubbles show @username on messages
+    - Typing indicator (animated dots)
+    - Message timestamps
+    - @mention detection with autocomplete dropdown
+    - Emoji quick-insert button with 12 common emojis
+    - Message delete (right-click shows trash button)
+    - Contact search by username
+
+15. **MessageBubble.tsx** — Updated:
+    - @mention highlighting (colored, bold)
+    - Sender name shown for received messages
+    - Image URL detection and rendering
+
+16. **PiPPlayer.tsx** — NEW component:
+    - Floating draggable mini-player (220x60px)
+    - Mouse and touch drag support
+    - Shows album art thumbnail, title, artist
+    - Play/pause button, minimize/close button
+    - Click opens full-screen track view
+    - z-index: 9999, always on top
+
+Test Results:
+- `bun run lint`: 0 errors, 0 warnings
+- `npx next build`: Compiled successfully, all 13 routes generated
+- Dev server running, API routes responding correctly
+
+Stage Summary:
+- Complete Deezer API integration for search, trending, recommendations
+- Full-screen track view with like/dislike and similar tracks
+- Context menu on right-click and "..." button
+- PiP floating mini-player
+- User profiles with avatar upload and @username editing
+- Messenger upgraded with @mentions, emojis, typing indicators, message delete
+- Sleep timer moved to inline popover in PlayerBar
+- Progress bar properly fixed with document-level drag tracking
+- All UI text in Russian
+- Zero ESLint errors, zero build errors

@@ -7,10 +7,12 @@ import { themes, applyThemeToDOM } from "@/lib/themes";
 import AuthView from "@/components/mq/AuthView";
 import MainView from "@/components/mq/MainView";
 import SearchView from "@/components/mq/SearchView";
-import SleepTimerView from "@/components/mq/SleepTimerView";
 import MessengerView from "@/components/mq/MessengerView";
 import SettingsView from "@/components/mq/SettingsView";
+import ProfileView from "@/components/mq/ProfileView";
 import PlayerBar from "@/components/mq/PlayerBar";
+import FullTrackView from "@/components/mq/FullTrackView";
+import PiPPlayer from "@/components/mq/PiPPlayer";
 import NavBar from "@/components/mq/NavBar";
 import MobileNav from "@/components/mq/MobileNav";
 
@@ -52,18 +54,17 @@ export default function Home() {
         return <MainView />;
       case "search":
         return <SearchView />;
-      case "sleep":
-        return <SleepTimerView />;
       case "messenger":
         return <MessengerView />;
       case "settings":
         return <SettingsView />;
+      case "profile":
+        return <ProfileView />;
       default:
         return <MainView />;
     }
   };
 
-  // Fix: if authenticated but stuck on auth view, redirect to main
   const showNav = currentView !== "auth";
 
   return (
@@ -81,7 +82,6 @@ export default function Home() {
             animate={animationsEnabled ? "animate" : undefined}
             exit={animationsEnabled ? "exit" : undefined}
             transition={{ duration: 0.2 }}
-            className={currentView === "messenger" ? "" : ""}
           >
             {renderView()}
           </motion.div>
@@ -90,6 +90,12 @@ export default function Home() {
 
       {/* Player bar (not on auth view) */}
       {showNav && <PlayerBar />}
+
+      {/* Full screen track view overlay */}
+      <FullTrackView />
+
+      {/* PiP Player */}
+      <PiPPlayer />
 
       {/* Mobile nav */}
       {showNav && <MobileNav />}

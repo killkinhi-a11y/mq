@@ -3,22 +3,21 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAppStore } from "@/store/useAppStore";
 import { motion } from "framer-motion";
-import { mockContacts, type Track, genreMap } from "@/lib/musicApi";
+import { type Track, getRecommendations } from "@/lib/musicApi";
 import TrackCard from "./TrackCard";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Heart, TrendingUp, Clock, Users, Music } from "lucide-react";
+import { Heart, TrendingUp, Clock, Users, Music, Sparkles, RefreshCw } from "lucide-react";
 
 export default function MainView() {
-  const { animationsEnabled, setView, playTrack } = useAppStore();
+  const { animationsEnabled, playTrack, likedTrackIds } = useAppStore();
   const [trendingTracks, setTrendingTracks] = useState<Track[]>([]);
-  const [genreSections, setGenreSections] = useState<{ genre: string; tracks: Track[] }[]>([]);
+  const [recommendations, setRecommendations] = useState<Track[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isGenreLoading, setIsGenreLoading] = useState(false);
+  const [isRecLoading, setIsRecLoading] = useState(true);
 
-  // Fetch trending tracks on mount
+  // Fetch trending tracks
   useEffect(() => {
     let cancelled = false;
-
     const fetchTrending = async () => {
       setIsLoading(true);
       try {
@@ -33,52 +32,34 @@ export default function MainView() {
         if (!cancelled) setIsLoading(false);
       }
     };
-
     fetchTrending();
     return () => { cancelled = true; };
   }, []);
 
-  // Fetch genre sections after trending loads
+  // Fetch recommendations
+  const loadRecommendations = useCallback(async () => {
+    setIsRecLoading(true);
+    try {
+      const tracks = await getRecommendations("random");
+      setRecommendations(tracks);
+    } catch {
+      setRecommendations([]);
+    } finally {
+      setIsRecLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    if (trendingTracks.length === 0 && !isLoading) return;
-
-    const genres = ["Pop", "Rock", "Electronic"];
-    let cancelled = false;
-
-    const fetchGenres = async () => {
-      setIsGenreLoading(true);
-      const sections: { genre: string; tracks: Track[] }[] = [];
-
-      await Promise.allSettled(
-        genres.map(async (genre) => {
-          try {
-            const res = await fetch(`/api/music/genre?genre=${encodeURIComponent(genre)}`);
-            const data = await res.json();
-            if (!cancelled && data.tracks && data.tracks.length > 0) {
-              const genreLabel = genre === "Pop" ? "Поп" : genre === "Rock" ? "Рок" : "Электроника";
-              sections.push({ genre: genreLabel, tracks: data.tracks.slice(0, 5) });
-            }
-          } catch {
-            // Skip failed genre fetches
-          }
-        })
-      );
-
-      if (!cancelled) {
-        setGenreSections(sections);
-        setIsGenreLoading(false);
-      }
-    };
-
-    fetchGenres();
-    return () => { cancelled = true; };
-  }, [trendingTracks, isLoading]);
+    loadRecommendations();
+  }, [loadRecommendations]);
 
   const handlePlayAll = useCallback(() => {
-    if (trendingTracks.length > 0) {
-      playTrack(trendingTracks[0], trendingTracks);
-    }
+    if (trendingTracks.length > 0) playTrack(trendingTracks[0], trendingTracks);
   }, [trendingTracks, playTrack]);
+
+  const handlePlayRecAll = useCallback(() => {
+    if (recommendations.length > 0) playTrack(recommendations[0], recommendations);
+  }, [recommendations, playTrack]);
 
   return (
     <div className="p-4 lg:p-6 pb-40 lg:pb-28 space-y-6">
@@ -87,10 +68,7 @@ export default function MainView() {
         initial={animationsEnabled ? { opacity: 0, y: 20 } : undefined}
         animate={{ opacity: 1, y: 0 }}
         className="rounded-2xl p-6 lg:p-8 relative overflow-hidden"
-        style={{
-          background: "var(--mq-gradient), var(--mq-card)",
-          border: "1px solid var(--mq-border)",
-        }}
+        style={{ background: "var(--mq-gradient), var(--mq-card)", border: "1px solid var(--mq-border)" }}
       >
         <div className="relative z-10">
           <h1 className="text-2xl lg:text-3xl font-bold mb-2" style={{ color: "var(--mq-text)" }}>
@@ -105,26 +83,19 @@ export default function MainView() {
       {/* Quick stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          { icon: Heart, label: "Избранное", value: "42 трека" },
+          { icon: Heart, label: "Избранное", value: `${likedTrackIds.length} треков` },
           { icon: TrendingUp, label: "Популярное", value: "Сейчас" },
           { icon: Clock, label: "Недавно", value: "Сегодня" },
-          { icon: Users, label: "Друзья", value: `${mockContacts.length} онлайн` },
+          { icon: Users, label: "Друзья", value: "5 онлайн" },
         ].map((stat, i) => (
-          <motion.div
-            key={stat.label}
+          <motion.div key={stat.label}
             initial={animationsEnabled ? { opacity: 0, y: 20 } : undefined}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.1 }}
             className="rounded-xl p-4 flex items-center gap-3"
-            style={{
-              backgroundColor: "var(--mq-card)",
-              border: "1px solid var(--mq-border)",
-            }}
-          >
-            <div
-              className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
-              style={{ backgroundColor: "var(--mq-accent)", opacity: 0.8 }}
-            >
+            style={{ backgroundColor: "var(--mq-card)", border: "1px solid var(--mq-border)" }}>
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+              style={{ backgroundColor: "var(--mq-accent)", opacity: 0.8 }}>
               <stat.icon className="w-5 h-5" style={{ color: "var(--mq-text)" }} />
             </div>
             <div>
@@ -135,6 +106,58 @@ export default function MainView() {
         ))}
       </div>
 
+      {/* Recommendations */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-5 h-5" style={{ color: "var(--mq-accent)" }} />
+            <h2 className="text-lg font-bold" style={{ color: "var(--mq-text)" }}>
+              Рекомендации для тебя
+            </h2>
+          </div>
+          <div className="flex items-center gap-2">
+            {recommendations.length > 0 && (
+              <button onClick={handlePlayRecAll} className="text-sm" style={{ color: "var(--mq-accent)" }}>
+                Воспроизвести все
+              </button>
+            )}
+            <motion.button whileTap={{ scale: 0.9 }} onClick={loadRecommendations} disabled={isRecLoading}
+              className="p-1.5 rounded-lg" style={{ color: "var(--mq-text-muted)", border: "1px solid var(--mq-border)" }}>
+              <RefreshCw className={`w-3.5 h-3.5 ${isRecLoading ? "animate-spin" : ""}`} />
+            </motion.button>
+          </div>
+        </div>
+
+        {isRecLoading && (
+          <div className="space-y-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 p-3 rounded-xl" style={{ backgroundColor: "var(--mq-card)" }}>
+                <Skeleton className="w-12 h-12 rounded-lg flex-shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-3 w-1/2" />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!isRecLoading && recommendations.length > 0 && (
+          <div className="space-y-2">
+            {recommendations.slice(0, 8).map((track, i) => (
+              <TrackCard key={track.id} track={track} index={i} />
+            ))}
+          </div>
+        )}
+
+        {!isRecLoading && recommendations.length === 0 && (
+          <div className="text-center py-8">
+            <Music className="w-10 h-10 mx-auto mb-2" style={{ color: "var(--mq-text-muted)", opacity: 0.3 }} />
+            <p className="text-sm" style={{ color: "var(--mq-text-muted)" }}>Не удалось загрузить рекомендации</p>
+          </div>
+        )}
+      </div>
+
       {/* Trending tracks */}
       <div>
         <div className="flex items-center justify-between mb-4">
@@ -142,17 +165,12 @@ export default function MainView() {
             Популярные треки
           </h2>
           {trendingTracks.length > 0 && (
-            <button
-              onClick={handlePlayAll}
-              className="text-sm"
-              style={{ color: "var(--mq-accent)" }}
-            >
+            <button onClick={handlePlayAll} className="text-sm" style={{ color: "var(--mq-accent)" }}>
               Воспроизвести все
             </button>
           )}
         </div>
 
-        {/* Loading skeletons */}
         {isLoading && (
           <div className="space-y-2">
             {Array.from({ length: 6 }).map((_, i) => (
@@ -168,7 +186,6 @@ export default function MainView() {
           </div>
         )}
 
-        {/* Real tracks */}
         {!isLoading && trendingTracks.length > 0 && (
           <div className="space-y-2">
             {trendingTracks.slice(0, 10).map((track, i) => (
@@ -177,64 +194,13 @@ export default function MainView() {
           </div>
         )}
 
-        {/* Empty state */}
         {!isLoading && trendingTracks.length === 0 && (
           <div className="text-center py-8">
             <Music className="w-10 h-10 mx-auto mb-2" style={{ color: "var(--mq-text-muted)", opacity: 0.3 }} />
-            <p className="text-sm" style={{ color: "var(--mq-text-muted)" }}>
-              Не удалось загрузить популярные треки
-            </p>
+            <p className="text-sm" style={{ color: "var(--mq-text-muted)" }}>Не удалось загрузить популярные треки</p>
           </div>
         )}
       </div>
-
-      {/* Genre sections */}
-      {isGenreLoading && (
-        <div className="space-y-6">
-          {Array.from({ length: 2 }).map((_, i) => (
-            <div key={i}>
-              <Skeleton className="h-6 w-40 mb-4" />
-              <div className="grid grid-cols-1 gap-2">
-                {Array.from({ length: 3 }).map((_, j) => (
-                  <div key={j} className="flex items-center gap-3 p-3 rounded-xl" style={{ backgroundColor: "var(--mq-card)" }}>
-                    <Skeleton className="w-12 h-12 rounded-lg flex-shrink-0" />
-                    <div className="flex-1 space-y-2">
-                      <Skeleton className="h-4 w-3/4" />
-                      <Skeleton className="h-3 w-1/2" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {!isGenreLoading && genreSections.map((section) => (
-        <div key={section.genre}>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold" style={{ color: "var(--mq-text)" }}>
-              {section.genre}
-            </h2>
-            <button
-              onClick={() => {
-                useAppStore.getState().setView("search");
-                useAppStore.getState().setSearchQuery("");
-                useAppStore.getState().setSelectedGenre(section.genre);
-              }}
-              className="text-sm"
-              style={{ color: "var(--mq-accent)" }}
-            >
-              Все →
-            </button>
-          </div>
-          <div className="space-y-2">
-            {section.tracks.map((track, i) => (
-              <TrackCard key={track.id} track={track} index={i} />
-            ))}
-          </div>
-        </div>
-      ))}
     </div>
   );
 }

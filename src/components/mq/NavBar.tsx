@@ -2,19 +2,18 @@
 
 import { motion } from "framer-motion";
 import { useAppStore } from "@/store/useAppStore";
-import { Home, Search, Moon, MessageCircle, Settings, Music, LogOut } from "lucide-react";
+import { Home, Search, MessageCircle, Settings, Music, LogOut, User } from "lucide-react";
 import type { ViewType } from "@/store/useAppStore";
 
 const navItems: { id: ViewType; icon: typeof Home; label: string }[] = [
   { id: "main", icon: Home, label: "Главная" },
   { id: "search", icon: Search, label: "Поиск" },
-  { id: "sleep", icon: Moon, label: "Таймер сна" },
   { id: "messenger", icon: MessageCircle, label: "Мессенджер" },
   { id: "settings", icon: Settings, label: "Настройки" },
 ];
 
 export default function NavBar() {
-  const { currentView, setView, logout, username } = useAppStore();
+  const { currentView, setView, logout, username, avatar, setView: setViewAction } = useAppStore();
 
   return (
     <header
@@ -56,9 +55,26 @@ export default function NavBar() {
       </nav>
 
       <div className="flex items-center gap-3">
-        <span className="text-sm" style={{ color: "var(--mq-text-muted)" }}>
-          {username}
-        </span>
+        {/* User profile button */}
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => setView("profile")}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors"
+          style={{ backgroundColor: "var(--mq-card)", border: "1px solid var(--mq-border)" }}
+        >
+          {avatar ? (
+            <img src={avatar} alt="avatar" className="w-6 h-6 rounded-full object-cover" />
+          ) : (
+            <div className="w-6 h-6 rounded-full flex items-center justify-center" style={{ backgroundColor: "var(--mq-accent)" }}>
+              <User className="w-3.5 h-3.5" style={{ color: "var(--mq-text)" }} />
+            </div>
+          )}
+          <span className="text-sm" style={{ color: "var(--mq-text)" }}>
+            @{username || "User"}
+          </span>
+        </motion.button>
+
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}

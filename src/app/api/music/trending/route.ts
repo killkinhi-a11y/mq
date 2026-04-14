@@ -1,25 +1,15 @@
 import { NextResponse } from "next/server";
 
-interface ITunesResult {
-  trackId: number;
-  trackName: string;
-  artistName: string;
-  collectionName: string;
-  artworkUrl100: string;
-  previewUrl: string;
-  trackTimeMillis: number;
-  primaryGenreName: string;
-  kind: string;
-}
+/**
+ * Trending tracks — iTunes for metadata, Audius for full tracks.
+ */
 
 const cache = new Map<string, { data: unknown; expiry: number }>();
-const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+const CACHE_TTL = 10 * 60 * 1000;
 
 function getFromCache(key: string): unknown | null {
   const entry = cache.get(key);
-  if (entry && entry.expiry > Date.now()) {
-    return entry.data;
-  }
+  if (entry && entry.expiry > Date.now()) return entry.data;
   cache.delete(key);
   return null;
 }
@@ -28,74 +18,100 @@ function setCache(key: string, data: unknown): void {
   cache.set(key, { data, expiry: Date.now() + CACHE_TTL });
 }
 
-async function fetchITunes(term: string, limit: number = 10): Promise<ITunesResult[]> {
-  const url = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&limit=${limit}&country=RU`;
-  const res = await fetch(url, {
-    headers: { "Accept": "application/json" },
-    next: { revalidate: 600 },
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return (data.results || []).filter(
-    (item: ITunesResult) => item.kind === "song" && item.previewUrl
-  );
+interface ITunesTrack {
+  trackId: number;
+  trackName: string;
+  artistName: string;
+  collectionName: string;
+  artworkUrl100: string;
+  previewUrl: string;
+  trackTimeMillis: number;
 }
 
-function transformTrack(item: ITunesResult) {
-  return {
-    id: String(item.trackId),
-    title: item.trackName || "Unknown Track",
-    artist: item.artistName || "Unknown Artist",
-    album: item.collectionName || "Unknown Album",
-    duration: Math.round((item.trackTimeMillis || 30000) / 1000),
-    cover: (item.artworkUrl100 || "").replace("100x100bb", "300x300bb") || "https://picsum.photos/seed/default/300/300",
-    genre: item.primaryGenreName || "Другое",
-    audioUrl: item.previewUrl || "",
-    previewUrl: item.previewUrl,
-  };
+async function fetchiTunesTrending() {
+  try {
+    const url = "https://itunes.apple.com/search?term=top+hits+2025&media=music&limit=25";
+    const res = await fetch(url, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const tracks: ITunesTrack[] = data.results || [];
+
+    return tracks.filter((t) => t.previewUrl).map((t) => ({
+      id: `itunes_${t.trackId}`,
+      title: t.trackName || "Unknown Track",
+      artist: t.artistName || "Unknown Artist",
+      album: t.collectionName || "Unknown Album",
+      duration: Math.round((t.trackTimeMillis || 30000) / 1000),
+      cover: (t.artworkUrl100 || "").replace("100x100bb", "500x500bb"),
+      audioUrl: t.previewUrl,
+      previewUrl: t.previewUrl,
+      source: "itunes" as const,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+async function fetchAudiusTrending() {
+  const providers = [
+    "https://discoveryprovider.audius.co",
+    "https://discoveryprovider2.audius.co",
+  ];
+
+  for (const provider of providers) {
+    try {
+      const res = await fetch(
+        `${provider}/v1/tracks/trending?app_name=mqplayer&limit=25`,
+        { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(10000) }
+      );
+      if (!res.ok) continue;
+
+      const data = await res.json();
+      const tracks = data.data || [];
+      if (tracks.length === 0) continue;
+
+      return tracks.map((t: Record<string, unknown>) => {
+        const user = t.user as Record<string, unknown> | undefined;
+        return {
+          id: `audius_${t.id}`,
+          title: t.title || "Unknown Track",
+          artist: user?.name || "Unknown Artist",
+          album: "",
+          duration: (t.duration as number) || 30,
+          cover: (t.artwork as string) || "https://picsum.photos/seed/default/300/300",
+          audioUrl: `${provider}/v1/tracks/${t.id}/stream?app_name=mqplayer`,
+          previewUrl: `${provider}/v1/tracks/${t.id}/stream?app_name=mqplayer`,
+          source: "audius" as const,
+        };
+      });
+    } catch {
+      continue;
+    }
+  }
+  return [];
 }
 
 export async function GET() {
-  const cacheKey = "trending:mix";
+  const cacheKey = "trending:unified";
   const cached = getFromCache(cacheKey);
-  if (cached) {
-    return NextResponse.json(cached);
-  }
+  if (cached) return NextResponse.json(cached);
 
   try {
-    // Fetch from multiple searches for variety
-    const searchTerms = [
-      "popular music 2024",
-      "top hits",
-      "new releases",
-      "trending songs",
-    ];
-
-    const results = await Promise.allSettled(
-      searchTerms.map((term) => fetchITunes(term, 10))
-    );
-
-    const allTracks: ITunesResult[] = [];
-    const seenIds = new Set<number>();
-
-    for (const result of results) {
-      if (result.status === "fulfilled") {
-        for (const track of result.value) {
-          if (!seenIds.has(track.trackId)) {
-            seenIds.add(track.trackId);
-            allTracks.push(track);
-          }
-        }
-      }
+    // 1. Try Audius trending (full tracks!)
+    const audiusTracks = await fetchAudiusTrending();
+    if (audiusTracks.length > 0) {
+      const responseData = { tracks: audiusTracks };
+      setCache(cacheKey, responseData);
+      return NextResponse.json(responseData);
     }
 
-    // Shuffle and take up to 25
-    const shuffled = allTracks.sort(() => Math.random() - 0.5).slice(0, 25);
-    const transformed = shuffled.map(transformTrack);
-
-    const responseData = { tracks: transformed };
+    // 2. Fallback to iTunes (30s previews)
+    const itunesTracks = await fetchiTunesTrending();
+    const responseData = { tracks: itunesTracks };
     setCache(cacheKey, responseData);
-
     return NextResponse.json(responseData);
   } catch {
     return NextResponse.json({ tracks: [] }, { status: 200 });

@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { type Track, type Message as ChatMessage, mockContacts } from "@/lib/musicApi";
 
-export type ViewType = "auth" | "main" | "search" | "sleep" | "messenger" | "settings";
+export type ViewType = "auth" | "main" | "search" | "messenger" | "settings" | "profile";
 export type AuthStep = "login" | "register" | "confirm" | "confirmed";
 
 interface AppState {
@@ -11,6 +11,7 @@ interface AppState {
   userId: string | null;
   username: string | null;
   email: string | null;
+  avatar: string | null;
   currentView: ViewType;
   authStep: AuthStep;
 
@@ -31,6 +32,7 @@ interface AppState {
   duration: number;
   shuffle: boolean;
   repeat: "off" | "all" | "one";
+  playbackMode: "saavn" | "deezer" | "itunes" | "audius" | "idle";
 
   // Sleep timer
   sleepTimerActive: boolean;
@@ -46,6 +48,20 @@ interface AppState {
   searchQuery: string;
   selectedGenre: string;
   isLoading: boolean;
+
+  // Full-screen track view
+  isFullTrackViewOpen: boolean;
+
+  // Likes/Dislikes
+  likedTrackIds: string[];
+  dislikedTrackIds: string[];
+
+  // PiP
+  isPiPActive: boolean;
+
+  // Similar tracks panel
+  similarTracks: Track[];
+  similarTracksLoading: boolean;
 
   // Actions
   setAuth: (userId: string, username: string, email: string) => void;
@@ -70,6 +86,7 @@ interface AppState {
   prevTrack: () => void;
   toggleShuffle: () => void;
   toggleRepeat: () => void;
+  setPlaybackMode: (mode: "saavn" | "deezer" | "itunes" | "audius" | "idle") => void;
 
   // Sleep timer actions
   startSleepTimer: (minutes: number) => void;
@@ -86,6 +103,22 @@ interface AppState {
   setSelectedGenre: (genre: string) => void;
   setIsLoading: (loading: boolean) => void;
 
+  // Full-screen track view actions
+  setFullTrackViewOpen: (open: boolean) => void;
+
+  // Like/Dislike actions
+  toggleLike: (trackId: string) => void;
+  toggleDislike: (trackId: string) => void;
+  isTrackLiked: (trackId: string) => boolean;
+  isTrackDisliked: (trackId: string) => boolean;
+
+  // PiP actions
+  setPiPActive: (active: boolean) => void;
+
+  // Similar tracks actions
+  setSimilarTracks: (tracks: Track[]) => void;
+  setSimilarTracksLoading: (loading: boolean) => void;
+
   // Reset
   reset: () => void;
 }
@@ -95,6 +128,7 @@ const initialState = {
   userId: null as string | null,
   username: null as string | null,
   email: null as string | null,
+  avatar: null as string | null,
   currentView: "auth" as ViewType,
   authStep: "login" as AuthStep,
   currentTheme: "default",
@@ -111,15 +145,22 @@ const initialState = {
   duration: 0,
   shuffle: false,
   repeat: "off" as "off" | "all" | "one",
+  playbackMode: "idle" as "saavn" | "deezer" | "itunes" | "audius" | "idle",
   sleepTimerActive: false,
   sleepTimerMinutes: 30,
   sleepTimerRemaining: 0,
   sleepTimerEndTime: null as number | null,
-  messages: [],
+  messages: [] as ChatMessage[],
   selectedContactId: null as string | null,
   searchQuery: "",
   selectedGenre: "",
   isLoading: false,
+  isFullTrackViewOpen: false,
+  likedTrackIds: [] as string[],
+  dislikedTrackIds: [] as string[],
+  isPiPActive: false,
+  similarTracks: [] as Track[],
+  similarTracksLoading: false,
 };
 
 export const useAppStore = create<AppState>()(
@@ -158,7 +199,6 @@ export const useAppStore = create<AppState>()(
           isPlaying: true,
           progress: 0,
           duration: track.duration,
-          currentView: state.isAuthenticated ? state.currentView : state.currentView,
         });
       },
 
@@ -221,6 +261,8 @@ export const useAppStore = create<AppState>()(
           repeat: s.repeat === "off" ? "all" : s.repeat === "all" ? "one" : "off",
         })),
 
+      setPlaybackMode: (mode) => set({ playbackMode: mode }),
+
       startSleepTimer: (minutes) => {
         const endTime = Date.now() + minutes * 60 * 1000;
         set({
@@ -267,6 +309,41 @@ export const useAppStore = create<AppState>()(
 
       setIsLoading: (loading) => set({ isLoading: loading }),
 
+      setFullTrackViewOpen: (open) => set({ isFullTrackViewOpen: open }),
+
+      toggleLike: (trackId) => {
+        const { likedTrackIds, dislikedTrackIds } = get();
+        if (likedTrackIds.includes(trackId)) {
+          set({ likedTrackIds: likedTrackIds.filter((id) => id !== trackId) });
+        } else {
+          set({
+            likedTrackIds: [...likedTrackIds, trackId],
+            dislikedTrackIds: dislikedTrackIds.filter((id) => id !== trackId),
+          });
+        }
+      },
+
+      toggleDislike: (trackId) => {
+        const { dislikedTrackIds, likedTrackIds } = get();
+        if (dislikedTrackIds.includes(trackId)) {
+          set({ dislikedTrackIds: dislikedTrackIds.filter((id) => id !== trackId) });
+        } else {
+          set({
+            dislikedTrackIds: [...dislikedTrackIds, trackId],
+            likedTrackIds: likedTrackIds.filter((id) => id !== trackId),
+          });
+        }
+      },
+
+      isTrackLiked: (trackId) => get().likedTrackIds.includes(trackId),
+
+      isTrackDisliked: (trackId) => get().dislikedTrackIds.includes(trackId),
+
+      setPiPActive: (active) => set({ isPiPActive: active }),
+
+      setSimilarTracks: (tracks) => set({ similarTracks: tracks }),
+      setSimilarTracksLoading: (loading) => set({ similarTracksLoading: loading }),
+
       reset: () => set(initialState),
     }),
     {
@@ -282,8 +359,11 @@ export const useAppStore = create<AppState>()(
         userId: state.userId,
         username: state.username,
         email: state.email,
+        avatar: state.avatar,
         messages: state.messages,
         currentView: state.currentView,
+        likedTrackIds: state.likedTrackIds,
+        dislikedTrackIds: state.dislikedTrackIds,
       }),
     }
   )

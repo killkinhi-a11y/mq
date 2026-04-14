@@ -2,14 +2,14 @@
 
 import { motion } from "framer-motion";
 import { useAppStore } from "@/store/useAppStore";
-import { Home, Search, Moon, MessageCircle, Settings, Music } from "lucide-react";
+import { Home, Search, MessageCircle, Settings, User } from "lucide-react";
 import type { ViewType } from "@/store/useAppStore";
 
 const navItems: { id: ViewType; icon: typeof Home; label: string }[] = [
   { id: "main", icon: Home, label: "Главная" },
   { id: "search", icon: Search, label: "Поиск" },
-  { id: "sleep", icon: Moon, label: "Таймер" },
   { id: "messenger", icon: MessageCircle, label: "Чат" },
+  { id: "profile", icon: User, label: "Профиль" },
   { id: "settings", icon: Settings, label: "Настройки" },
 ];
 

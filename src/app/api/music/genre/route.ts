@@ -1,15 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
-interface ITunesResult {
-  trackId: number;
-  trackName: string;
-  artistName: string;
-  collectionName: string;
-  artworkUrl100: string;
-  previewUrl: string;
-  trackTimeMillis: number;
-  primaryGenreName: string;
-  kind: string;
+interface DeezerTrack {
+  id: number;
+  title: string;
+  artist: { name: string; id: number };
+  album: { title: string; cover_medium: string; cover_big: string; cover: string };
+  duration: number;
+  preview: string;
 }
 
 const cache = new Map<string, { data: unknown; expiry: number }>();
@@ -28,6 +25,25 @@ function setCache(key: string, data: unknown): void {
   cache.set(key, { data, expiry: Date.now() + CACHE_TTL });
 }
 
+const genreIds: Record<string, number> = {
+  "Поп": 132,
+  "Рок": 152,
+  "Электроника": 113,
+  "Хип-хоп": 116,
+  "R&B": 165,
+  "Джаз": 129,
+  "Классика": 98,
+  "Инди": 85,
+  "Pop": 132,
+  "Rock": 152,
+  "Electronic": 113,
+  "Hip-Hop": 116,
+  "Jazz": 129,
+  "Classical": 98,
+  "R&B": 165,
+  "Indie": 85,
+};
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const genre = searchParams.get("genre");
@@ -43,10 +59,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const url = `https://itunes.apple.com/search?term=${encodeURIComponent(genre.trim())}&media=music&limit=15&country=RU`;
+    // Use Deezer search with genre keyword
+    const url = `https://api.deezer.com/search?q=${encodeURIComponent(genre.trim())}&limit=15`;
     const res = await fetch(url, {
       headers: { "Accept": "application/json" },
-      next: { revalidate: 420 },
+      signal: AbortSignal.timeout(8000),
     });
 
     if (!res.ok) {
@@ -54,20 +71,19 @@ export async function GET(request: NextRequest) {
     }
 
     const data = await res.json();
-    const tracks: ITunesResult[] = (data.results || []).filter(
-      (item: ITunesResult) => item.kind === "song" && item.previewUrl
-    );
+    const tracks: DeezerTrack[] = data.data || [];
 
     const transformed = tracks.map((item) => ({
-      id: String(item.trackId),
-      title: item.trackName || "Unknown Track",
-      artist: item.artistName || "Unknown Artist",
-      album: item.collectionName || "Unknown Album",
-      duration: Math.round((item.trackTimeMillis || 30000) / 1000),
-      cover: (item.artworkUrl100 || "").replace("100x100bb", "300x300bb") || "https://picsum.photos/seed/default/300/300",
-      genre: item.primaryGenreName || genre,
-      audioUrl: item.previewUrl || "",
-      previewUrl: item.previewUrl,
+      id: String(item.id),
+      title: item.title || "Unknown Track",
+      artist: item.artist?.name || "Unknown Artist",
+      album: item.album?.title || "Unknown Album",
+      duration: item.duration || 30,
+      cover: item.album?.cover_big || item.album?.cover_medium || "https://picsum.photos/seed/default/300/300",
+      genre: genre,
+      audioUrl: "",
+      previewUrl: item.preview || "",
+      source: "deezer" as const,
     }));
 
     const responseData = { tracks: transformed };
