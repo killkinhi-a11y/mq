@@ -4,8 +4,8 @@ import { type Track, type Message as ChatMessage } from "@/lib/musicApi";
 
 // ── Storage versioning ──
 // Bump this number to force a fresh store for all users with old data.
-const STORE_VERSION = 3;
-const STORAGE_KEY = "mq-player-store";
+const STORE_VERSION = 4;
+const STORAGE_KEY = "mq-store-v4";
 
 // Nuke stale data BEFORE Zustand tries to hydrate.
 // This runs at module-import time, so there is no React error boundary to catch failures.

@@ -37,39 +37,22 @@ export default function RootLayout({
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){
-              // === NUCLEAR CACHE-BUST ===
-              // This script runs BEFORE React. It ensures no stale data can crash the app.
-              
-              // 1. Clear stale persisted store
+              // === NUCLEAR CACHE-BUST v4 ===
+              // This script runs BEFORE React. Kills ALL old store keys.
+              var oldKeys=["mq-player-store","mq-store-v4","mq-store"];
+              var cleared=false;
               try{
-                var d=localStorage.getItem("mq-player-store");
-                if(d){
-                  var p=JSON.parse(d);
-                  var v=p&&p.version?p.version:0;
-                  if(v<3){
-                    localStorage.removeItem("mq-player-store");
-                    // Force fresh page load after clearing stale data
-                    window.location.replace(window.location.pathname+"?_f="+(Date.now()));
-                    return;
-                  }
+                for(var i=0;i<oldKeys.length;i++){
+                  try{localStorage.removeItem(oldKeys[i])}catch(x){}
                 }
-              }catch(e){
-                try{localStorage.removeItem("mq-player-store")}catch(x){}
-                window.location.replace(window.location.pathname+"?_f="+(Date.now()));
-                return;
-              }
-              
-              // 2. If we are running with a cache-bust param, clear ALL browser caches
-              if(window.location.search.indexOf("_f=")>-1){
-                try{sessionStorage.clear()}catch(e){}
-                if(window.caches){
-                  window.caches.keys().then(function(ks){
-                    ks.forEach(function(k){window.caches.delete(k)});
-                  });
-                }
-                // Clean up the URL (remove _f param) without creating a history entry
-                var cleanUrl=window.location.pathname+window.location.hash;
-                window.history.replaceState(null,"",cleanUrl);
+                cleared=true;
+              }catch(e){}
+              // Also clear sessionStorage and Cache API
+              try{sessionStorage.clear()}catch(e){}
+              if(window.caches){
+                window.caches.keys().then(function(ks){
+                  ks.forEach(function(k){window.caches.delete(k)});
+                });
               }
             })()`,
           }}
