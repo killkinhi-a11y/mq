@@ -255,7 +255,7 @@ export default function SearchView() {
           </h2>
           <div className="space-y-2">
             {activeTracks.map((track, i) => (
-              <TrackCard key={track.id} track={track} index={i} />
+              <TrackCard key={track.id} track={track} index={i} queue={activeTracks} />
             ))}
           </div>
         </div>

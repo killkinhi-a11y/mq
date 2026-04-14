@@ -3,14 +3,20 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useAppStore } from "@/store/useAppStore";
 import { motion, AnimatePresence } from "framer-motion";
-import { mockContacts } from "@/lib/musicApi";
 import MessageBubble from "./MessageBubble";
 import { Input } from "@/components/ui/input";
 import {
   Lock, Shield, Send, ArrowLeft, Search, ShieldCheck, Phone, Smile, Trash2,
-  Plus, Music2, X
+  Plus, Music2, X, Loader2
 } from "lucide-react";
 import { simulateEncrypt, getEncryptionStatus, generateMockFingerprint, simulateDecrypt } from "@/lib/crypto";
+
+interface FetchedUser {
+  id: string;
+  username: string;
+  email: string;
+  createdAt: string;
+}
 
 const quickEmojis = ["😀", "😂", "❤️", "🎵", "🔥", "👍", "😎", "🤔", "💪", "🫡", "✨", "🥳"];
 
@@ -31,7 +37,7 @@ function getDateLabel(dateStr: string): string {
 export default function MessengerView() {
   const {
     userId, username, messages, addMessage, selectedContactId, setSelectedContact,
-    animationsEnabled, currentTrack, unreadCounts,
+    animationsEnabled, currentTrack, unreadCounts, addContact, contacts,
   } = useAppStore();
 
   const [inputText, setInputText] = useState("");
@@ -41,34 +47,98 @@ export default function MessengerView() {
   const [mentionSearch, setMentionSearch] = useState("");
   const [showMentions, setShowMentions] = useState(false);
   const [deleteMessageId, setDeleteMessageId] = useState<string | null>(null);
-  const [typingContactId, setTypingContactId] = useState<string | null>(null);
   const [showNewChatDialog, setShowNewChatDialog] = useState(false);
   const [newChatSearch, setNewChatSearch] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Fetch real users on mount
+  const [allUsers, setAllUsers] = useState<FetchedUser[]>([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchUsers = async () => {
+      setIsLoadingUsers(true);
+      try {
+        const excludeParam = userId ? `?excludeId=${userId}` : "";
+        const res = await fetch(`/api/users/search${excludeParam}`);
+        if (!res.ok) { setAllUsers([]); return; }
+        const data = await res.json();
+        if (!cancelled) setAllUsers(data.users || []);
+      } catch {
+        if (!cancelled) setAllUsers([]);
+      } finally {
+        if (!cancelled) setIsLoadingUsers(false);
+      }
+    };
+    fetchUsers();
+    return () => { cancelled = true; };
+  }, [userId]);
+
+  // New chat dialog: search API with query
+  const [newChatUsers, setNewChatUsers] = useState<FetchedUser[]>([]);
+  const [isLoadingNewChat, setIsLoadingNewChat] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchNewChatUsers = async () => {
+      setIsLoadingNewChat(true);
+      try {
+        const excludeParam = userId ? `&excludeId=${userId}` : "";
+        const res = await fetch(`/api/users/search?q=${encodeURIComponent(newChatSearch)}${excludeParam}`);
+        if (!res.ok) { setNewChatUsers([]); return; }
+        const data = await res.json();
+        if (!cancelled) setNewChatUsers(data.users || []);
+      } catch {
+        if (!cancelled) setNewChatUsers([]);
+      } finally {
+        if (!cancelled) setIsLoadingNewChat(false);
+      }
+    };
+    fetchNewChatUsers();
+    return () => { cancelled = true; };
+  }, [newChatSearch, userId]);
+
+  // Convert fetched users to contact format for display
+  const contactList = useMemo(() => {
+    return allUsers.map((u) => ({
+      id: u.id,
+      name: u.username,
+      username: u.username,
+      avatar: `https://picsum.photos/seed/${u.username}/100/100`,
+      online: false,
+      lastSeen: new Date(u.createdAt).toLocaleDateString("ru-RU"),
+    }));
+  }, [allUsers]);
+
+  // When opening new chat, reset search
+  useEffect(() => {
+    if (showNewChatDialog) {
+      setNewChatSearch("");
+    }
+  }, [showNewChatDialog]);
+
   const selectedContact = useMemo(
-    () => mockContacts.find((c) => c.id === selectedContactId),
-    [selectedContactId]
+    () => contacts.find((c) => c.id === selectedContactId) || contactList.find((c) => c.id === selectedContactId),
+    [selectedContactId, contacts, contactList]
   );
 
-  // Filter contacts: support @username search directly
+  // Filter contacts: support @username search directly (local filter from fetched list)
   const filteredContacts = useMemo(() => {
     const q = searchContact.trim().toLowerCase();
-    if (!q) return mockContacts;
-    // If starts with @, search by username
+    if (!q) return contactList;
     if (q.startsWith("@")) {
       const usernameQuery = q.slice(1);
-      return mockContacts.filter((c) =>
+      return contactList.filter((c) =>
         c.username.toLowerCase().includes(usernameQuery)
       );
     }
-    // Otherwise search by name and username
-    return mockContacts.filter((c) =>
+    return contactList.filter((c) =>
       c.name.toLowerCase().includes(q) ||
       c.username.toLowerCase().includes(q)
     );
-  }, [searchContact]);
+  }, [searchContact, contactList]);
 
   // Get last message per contact
   const getLastMessage = useCallback((contactId: string) => {
@@ -87,18 +157,17 @@ export default function MessengerView() {
     return unreadCounts[contactId] || 0;
   }, [unreadCounts]);
 
-  // New chat filtered contacts
-  const newChatFiltered = useMemo(() => {
-    const q = newChatSearch.trim().toLowerCase();
-    if (!q) return mockContacts;
-    if (q.startsWith("@")) {
-      return mockContacts.filter((c) => c.username.toLowerCase().includes(q.slice(1)));
-    }
-    return mockContacts.filter((c) =>
-      c.name.toLowerCase().includes(q) ||
-      c.username.toLowerCase().includes(q)
-    );
-  }, [newChatSearch]);
+  // New chat filtered users (from API)
+  const newChatFilteredContacts = useMemo(() => {
+    return newChatUsers.map((u) => ({
+      id: u.id,
+      name: u.username,
+      username: u.username,
+      avatar: `https://picsum.photos/seed/${u.username}/100/100`,
+      online: false,
+      lastSeen: new Date(u.createdAt).toLocaleDateString("ru-RU"),
+    }));
+  }, [newChatUsers]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -120,13 +189,13 @@ export default function MessengerView() {
   };
 
   const filteredMentions = mentionSearch
-    ? mockContacts.filter((c) =>
+    ? contactList.filter((c) =>
         c.username.toLowerCase().includes(mentionSearch) ||
         c.name.toLowerCase().includes(mentionSearch)
       )
-    : mockContacts;
+    : contactList;
 
-  const handleMentionSelect = (contact: typeof mockContacts[0]) => {
+  const handleMentionSelect = (contact: typeof contactList[0]) => {
     const words = inputText.split(/\s/);
     words[words.length - 1] = `@${contact.username} `;
     setInputText(words.join(" "));
@@ -152,45 +221,6 @@ export default function MessengerView() {
     addMessage(msg);
     setInputText("");
     setShowEmojis(false);
-
-    // Simulate typing then response
-    setTypingContactId(selectedContactId);
-    setTimeout(() => {
-      setTypingContactId(null);
-      const responses = [
-        "Привет! Как дела? 🔒",
-        "Отлично! Что слушаешь? 🎵",
-        "Отправь мне трек! 🎶",
-        "Круто, давай потом обсудим",
-        "Привет! Шифрование работает 🛡️",
-        "Да, согласен! 👍",
-        "Хах, смешно 😂",
-        "Мне нравится этот трек ❤️",
-        "Слушаю сейчас подкаст 🎧",
-        "Хорошая погода сегодня ☀️",
-      ];
-      const reply = {
-        id: (Date.now() + 1).toString(),
-        content: responses[Math.floor(Math.random() * responses.length)],
-        senderId: selectedContactId,
-        receiverId: userId,
-        encrypted: true,
-        createdAt: new Date().toISOString(),
-        senderName: selectedContact ? `@${selectedContact.username}` : "Unknown",
-      };
-      addMessage(reply);
-
-      // Increment unread if not viewing this contact
-      const st = useAppStore.getState();
-      if (st.selectedContactId !== selectedContactId) {
-        useAppStore.setState({
-          unreadCounts: {
-            ...st.unreadCounts,
-            [selectedContactId]: (st.unreadCounts[selectedContactId] || 0) + 1,
-          },
-        });
-      }
-    }, 1500 + Math.random() * 2000);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -249,6 +279,14 @@ export default function MessengerView() {
     return groups;
   }, [contactMessages]);
 
+  // When selecting a contact from new chat, add to contacts list
+  const handleSelectContact = (contact: { id: string; name: string; username: string; avatar: string; online: boolean; lastSeen: string }) => {
+    addContact(contact);
+    setSelectedContact(contact.id);
+    setShowNewChatDialog(false);
+    setNewChatSearch("");
+  };
+
   return (
     <div className="min-h-screen flex flex-col lg:flex-row" style={{ backgroundColor: "var(--mq-bg)" }}>
       {/* Contacts sidebar */}
@@ -297,77 +335,80 @@ export default function MessengerView() {
         </div>
 
         <div className="flex-1 overflow-y-auto max-h-96 lg:max-h-none">
-          {filteredContacts.map((contact, i) => {
-            const lastMsg = getLastMessage(contact.id);
-            const unread = getUnreadCount(contact.id);
-            return (
-              <motion.button
-                key={contact.id}
-                initial={animationsEnabled ? { opacity: 0, x: -10 } : undefined}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.03 }}
-                onClick={() => setSelectedContact(contact.id)}
-                className="w-full flex items-center gap-3 p-3 hover:opacity-80 transition-opacity text-left cursor-pointer"
-                style={{
-                  backgroundColor: selectedContactId === contact.id ? "var(--mq-accent)" : "transparent",
-                  borderBottom: "1px solid var(--mq-border)",
-                }}
-              >
-                <div className="relative flex-shrink-0">
-                  <img src={contact.avatar} alt={contact.name} className="w-11 h-11 rounded-full object-cover" />
-                  {contact.online && (
-                    <div
-                      className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2"
-                      style={{
-                        backgroundColor: "#4ade80",
-                        borderColor: selectedContactId === contact.id ? "var(--mq-accent)" : "var(--mq-bg)",
-                      }}
-                    />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-medium truncate" style={{ color: "var(--mq-text)" }}>
-                      {contact.name}
-                    </p>
-                    {lastMsg && (
-                      <span className="text-[10px] flex-shrink-0" style={{ color: "var(--mq-text-muted)" }}>
-                        {new Date(lastMsg.createdAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
-                      </span>
-                    )}
+          {isLoadingUsers ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-5 h-5 animate-spin" style={{ color: "var(--mq-text-muted)" }} />
+            </div>
+          ) : filteredContacts.length > 0 ? (
+            filteredContacts.map((contact, i) => {
+              const lastMsg = getLastMessage(contact.id);
+              const unread = getUnreadCount(contact.id);
+              return (
+                <motion.button
+                  key={contact.id}
+                  initial={animationsEnabled ? { opacity: 0, x: -10 } : undefined}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.03 }}
+                  onClick={() => setSelectedContact(contact.id)}
+                  className="w-full flex items-center gap-3 p-3 hover:opacity-80 transition-opacity text-left cursor-pointer"
+                  style={{
+                    backgroundColor: selectedContactId === contact.id ? "var(--mq-accent)" : "transparent",
+                    borderBottom: "1px solid var(--mq-border)",
+                  }}
+                >
+                  <div className="relative flex-shrink-0">
+                    <img src={contact.avatar} alt={contact.name} className="w-11 h-11 rounded-full object-cover" />
                   </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs truncate" style={{ color: "var(--mq-text-muted)" }}>
-                      {lastMsg ? (
-                        <>
-                          {lastMsg.senderId === userId ? "Вы: " : ""}
-                          {(() => {
-                            try {
-                              const decrypted = simulateDecrypt(lastMsg.content);
-                              return decrypted.length > 30 ? decrypted.slice(0, 30) + "..." : decrypted;
-                            } catch {
-                              return lastMsg.content.slice(0, 30) + "...";
-                            }
-                          })()}
-                        </>
-                      ) : (
-                        `@${contact.username} • ${contact.online ? "В сети" : contact.lastSeen}`
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium truncate" style={{ color: "var(--mq-text)" }}>
+                        {contact.name}
+                      </p>
+                      {lastMsg && (
+                        <span className="text-[10px] flex-shrink-0" style={{ color: "var(--mq-text-muted)" }}>
+                          {new Date(lastMsg.createdAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
+                        </span>
                       )}
-                    </p>
-                    {unread > 0 && (
-                      <span
-                        className="min-w-[18px] h-[18px] rounded-full text-[10px] flex items-center justify-center px-1 flex-shrink-0 font-bold"
-                        style={{ backgroundColor: "var(--mq-accent)", color: "var(--mq-text)" }}
-                      >
-                        {unread}
-                      </span>
-                    )}
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs truncate" style={{ color: "var(--mq-text-muted)" }}>
+                        {lastMsg ? (
+                          <>
+                            {lastMsg.senderId === userId ? "Вы: " : ""}
+                            {(() => {
+                              try {
+                                const decrypted = simulateDecrypt(lastMsg.content);
+                                return decrypted.length > 30 ? decrypted.slice(0, 30) + "..." : decrypted;
+                              } catch {
+                                return lastMsg.content.slice(0, 30) + "...";
+                              }
+                            })()}
+                          </>
+                        ) : (
+                          `@${contact.username}`
+                        )}
+                      </p>
+                      {unread > 0 && (
+                        <span
+                          className="min-w-[18px] h-[18px] rounded-full text-[10px] flex items-center justify-center px-1 flex-shrink-0 font-bold"
+                          style={{ backgroundColor: "var(--mq-accent)", color: "var(--mq-text)" }}
+                        >
+                          {unread}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <Lock className="w-3 h-3 flex-shrink-0" style={{ color: "var(--mq-accent)", opacity: 0.5 }} />
-              </motion.button>
-            );
-          })}
+                  <Lock className="w-3 h-3 flex-shrink-0" style={{ color: "var(--mq-accent)", opacity: 0.5 }} />
+                </motion.button>
+              );
+            })
+          ) : (
+            <div className="text-center py-8">
+              <p className="text-sm" style={{ color: "var(--mq-text-muted)" }}>
+                {isLoadingUsers ? "Загрузка..." : "Нет пользователей"}
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -389,30 +430,16 @@ export default function MessengerView() {
               </button>
               <div className="relative">
                 <img src={selectedContact.avatar} alt={selectedContact.name} className="w-9 h-9 rounded-full object-cover" />
-                {selectedContact.online && (
-                  <div
-                    className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2"
-                    style={{ backgroundColor: "#4ade80", borderColor: "var(--mq-player-bg)" }}
-                  />
-                )}
               </div>
               <div className="flex-1">
                 <p className="text-sm font-medium" style={{ color: "var(--mq-text)" }}>
                   {selectedContact.name}
                 </p>
                 <div className="flex items-center gap-1">
-                  {typingContactId === selectedContact.id ? (
-                    <span className="text-[10px]" style={{ color: "var(--mq-accent)" }}>
-                      печатает...
-                    </span>
-                  ) : (
-                    <>
-                      <Lock className="w-2.5 h-2.5" style={{ color: "var(--mq-accent)" }} />
-                      <span className="text-[10px]" style={{ color: "var(--mq-text-muted)" }}>
-                        @{selectedContact.username} • Зашифрованный чат
-                      </span>
-                    </>
-                  )}
+                  <Lock className="w-2.5 h-2.5" style={{ color: "var(--mq-accent)" }} />
+                  <span className="text-[10px]" style={{ color: "var(--mq-text-muted)" }}>
+                    @{selectedContact.username} • Зашифрованный чат
+                  </span>
                 </div>
               </div>
               {/* Share track button */}
@@ -453,7 +480,7 @@ export default function MessengerView() {
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-12">
                     <Shield className="w-12 h-12 mx-auto mb-3" style={{ color: "var(--mq-text-muted)", opacity: 0.3 }} />
                     <p className="text-sm" style={{ color: "var(--mq-text-muted)" }}>
-                      Начните зашифрованный разговор с {selectedContact.name}
+                      Нет сообщений
                     </p>
                   </motion.div>
                 )}
@@ -492,32 +519,6 @@ export default function MessengerView() {
                   </div>
                 ))}
               </AnimatePresence>
-
-              {/* Typing indicator */}
-              {typingContactId === selectedContact.id && (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
-                  <div
-                    className="rounded-2xl px-4 py-3"
-                    style={{
-                      backgroundColor: "var(--mq-card)",
-                      borderBottomLeftRadius: "4px",
-                      border: "1px solid var(--mq-border)",
-                    }}
-                  >
-                    <div className="flex gap-1">
-                      {[0, 1, 2].map((i) => (
-                        <motion.div
-                          key={i}
-                          className="w-2 h-2 rounded-full"
-                          style={{ backgroundColor: "var(--mq-text-muted)" }}
-                          animate={{ opacity: [0.3, 1, 0.3] }}
-                          transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                </motion.div>
-              )}
             </div>
 
             {/* @mention dropdown */}
@@ -695,47 +696,33 @@ export default function MessengerView() {
               </div>
 
               <div className="max-h-80 overflow-y-auto">
-                {newChatFiltered.map((contact) => (
-                  <motion.button
-                    key={contact.id}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => {
-                      setSelectedContact(contact.id);
-                      setShowNewChatDialog(false);
-                      setNewChatSearch("");
-                    }}
-                    className="w-full flex items-center gap-3 p-3 hover:opacity-80 transition-opacity text-left cursor-pointer"
-                    style={{ borderBottom: "1px solid var(--mq-border)" }}
-                  >
-                    <div className="relative flex-shrink-0">
-                      <img src={contact.avatar} alt={contact.name} className="w-10 h-10 rounded-full object-cover" />
-                      {contact.online && (
-                        <div
-                          className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2"
-                          style={{ backgroundColor: "#4ade80", borderColor: "var(--mq-card)" }}
-                        />
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate" style={{ color: "var(--mq-text)" }}>
-                        {contact.name}
-                      </p>
-                      <p className="text-xs" style={{ color: "var(--mq-text-muted)" }}>
-                        @{contact.username}
-                      </p>
-                    </div>
-                    {contact.online ? (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ backgroundColor: "rgba(74,222,128,0.15)", color: "#4ade80" }}>
-                        В сети
-                      </span>
-                    ) : (
-                      <span className="text-[10px]" style={{ color: "var(--mq-text-muted)" }}>
-                        {contact.lastSeen}
-                      </span>
-                    )}
-                  </motion.button>
-                ))}
-                {newChatFiltered.length === 0 && (
+                {isLoadingNewChat ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-5 h-5 animate-spin" style={{ color: "var(--mq-text-muted)" }} />
+                  </div>
+                ) : newChatFilteredContacts.length > 0 ? (
+                  newChatFilteredContacts.map((contact) => (
+                    <motion.button
+                      key={contact.id}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => handleSelectContact(contact)}
+                      className="w-full flex items-center gap-3 p-3 hover:opacity-80 transition-opacity text-left cursor-pointer"
+                      style={{ borderBottom: "1px solid var(--mq-border)" }}
+                    >
+                      <div className="relative flex-shrink-0">
+                        <img src={contact.avatar} alt={contact.name} className="w-10 h-10 rounded-full object-cover" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate" style={{ color: "var(--mq-text)" }}>
+                          {contact.name}
+                        </p>
+                        <p className="text-xs" style={{ color: "var(--mq-text-muted)" }}>
+                          @{contact.username}
+                        </p>
+                      </div>
+                    </motion.button>
+                  ))
+                ) : (
                   <div className="text-center py-8">
                     <p className="text-sm" style={{ color: "var(--mq-text-muted)" }}>Пользователи не найдены</p>
                   </div>

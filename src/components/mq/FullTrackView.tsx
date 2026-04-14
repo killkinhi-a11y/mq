@@ -5,7 +5,7 @@ import { useAppStore } from "@/store/useAppStore";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Repeat, Repeat1,
-  Shuffle, X, Heart, ThumbsDown, ListMusic, Music, Loader2, ChevronLeft
+  Shuffle, X, Heart, ThumbsDown, ListMusic, Music, ChevronLeft
 } from "lucide-react";
 import { formatDuration, searchTracks, type Track } from "@/lib/musicApi";
 import TrackCard from "./TrackCard";
@@ -19,7 +19,7 @@ export default function FullTrackView() {
     isFullTrackViewOpen, setFullTrackViewOpen, animationsEnabled,
     toggleLike, toggleDislike, isTrackLiked, isTrackDisliked,
     similarTracks, setSimilarTracks, similarTracksLoading, setSimilarTracksLoading,
-    playTrack, queue,
+    playTrack, queue, showSimilarRequested, clearShowSimilarRequest,
   } = useAppStore();
 
   const progressRef = useRef<HTMLDivElement>(null);
@@ -28,6 +28,14 @@ export default function FullTrackView() {
   const vizAnimRef = useRef<number>(0);
   const [isDragging, setIsDragging] = useState(false);
   const [showSimilar, setShowSimilar] = useState(false);
+
+  // Handle showSimilarRequested from store
+  useEffect(() => {
+    if (showSimilarRequested) {
+      setShowSimilar(true);
+      clearShowSimilarRequest();
+    }
+  }, [showSimilarRequested, clearShowSimilarRequest]);
 
   // Fetch similar tracks
   useEffect(() => {
@@ -151,6 +159,12 @@ export default function FullTrackView() {
         b = parseInt(accentColor.slice(5, 7), 16);
       }
 
+      // Glow effect
+      ctx.shadowColor = accentColor;
+      ctx.shadowBlur = 8;
+      ctx.lineWidth = Math.max(2, (size / barCount) * 0.45);
+      ctx.lineCap = "round";
+
       for (let i = 0; i < barCount; i++) {
         const dataIndex = Math.floor(i * bufferLength / barCount);
         const value = dataArray[dataIndex] / 255;
@@ -159,8 +173,27 @@ export default function FullTrackView() {
         const angle = (i / barCount) * Math.PI * 2 - Math.PI / 2;
         const x1 = centerX + Math.cos(angle) * innerRadius;
         const y1 = centerY + Math.sin(angle) * innerRadius;
-        const x2 = centerX + Math.cos(angle) * (innerRadius + barHeight);
-        const y2 = centerY + Math.sin(angle) * (innerRadius + barHeight);
+
+        // Curved/wavy radial lines using adjacent values
+        const prevIndex = (i - 1 + barCount) % barCount;
+        const nextIndex = (i + 1) % barCount;
+        const prevDataIndex = Math.floor(prevIndex * bufferLength / barCount);
+        const nextDataIndex = Math.floor(nextIndex * bufferLength / barCount);
+        const prevValue = dataArray[prevDataIndex] / 255;
+        const nextValue = dataArray[nextDataIndex] / 255;
+
+        const waveOffset = (prevValue - nextValue) * size * 0.01;
+
+        const midAngle = angle;
+        const midRadius = innerRadius + barHeight * 0.5;
+        const perpAngle = midAngle + Math.PI / 2;
+        const controlX = centerX + Math.cos(midAngle) * midRadius + Math.cos(perpAngle) * waveOffset;
+        const controlY = centerY + Math.sin(midAngle) * midRadius + Math.sin(perpAngle) * waveOffset;
+
+        const endAngle = angle;
+        const endRadius = innerRadius + barHeight;
+        const x2 = centerX + Math.cos(endAngle) * endRadius;
+        const y2 = centerY + Math.sin(endAngle) * endRadius;
 
         // Color gradient based on position
         const mix = i / barCount;
@@ -170,20 +203,21 @@ export default function FullTrackView() {
 
         ctx.strokeStyle = `rgba(${cr},${cg},${cb},1)`;
         ctx.globalAlpha = 0.25 + value * 0.75;
-        ctx.lineWidth = Math.max(2, (size / barCount) * 0.45);
-        ctx.lineCap = "round";
         ctx.beginPath();
         ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
+        ctx.quadraticCurveTo(controlX, controlY, x2, y2);
         ctx.stroke();
       }
 
-      // Inner glow ring
-      ctx.globalAlpha = 0.08;
+      ctx.shadowBlur = 0;
+
+      // Inner glow ring — pulse with bass frequencies
+      const bassValue = dataArray.slice(0, 4).reduce((sum, v) => sum + v, 0) / (4 * 255);
+      ctx.globalAlpha = 0.05 + bassValue * 0.12;
       ctx.beginPath();
       ctx.arc(centerX, centerY, innerRadius - 2, 0, Math.PI * 2);
       ctx.strokeStyle = accentColor;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 2 + bassValue * 3;
       ctx.stroke();
 
       ctx.globalAlpha = 1;
@@ -386,7 +420,7 @@ export default function FullTrackView() {
                 ) : similarTracks.length > 0 ? (
                   <div className="space-y-1 overflow-y-auto" style={{ maxHeight: "30vh" }}>
                     {similarTracks.map((track, i) => (
-                      <TrackCard key={track.id} track={track} index={i} />
+                      <TrackCard key={track.id} track={track} index={i} queue={similarTracks} />
                     ))}
                   </div>
                 ) : (

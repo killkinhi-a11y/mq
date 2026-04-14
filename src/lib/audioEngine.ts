@@ -37,8 +37,8 @@ export function initAudioEngine(audio: HTMLAudioElement): AnalyserNode | null {
     const ctx = new AudioContext();
     const source = ctx.createMediaElementSource(audio);
     const analyser = ctx.createAnalyser();
-    analyser.fftSize = 256;
-    analyser.smoothingTimeConstant = 0.78;
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.85;
     source.connect(analyser);
     analyser.connect(ctx.destination);
 

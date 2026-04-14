@@ -5,7 +5,7 @@ import { useAppStore } from "@/store/useAppStore";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Repeat, Repeat1,
-  Shuffle, Music, Loader2, Moon, Clock, X, PictureInPicture2
+  Shuffle, Music, Loader2, Moon, Clock, X, PictureInPicture2, Sparkles
 } from "lucide-react";
 import { formatDuration } from "@/lib/musicApi";
 import { getAudioElement, initAudioEngine, getAnalyser, resumeAudioContext } from "@/lib/audioEngine";
@@ -146,11 +146,8 @@ export default function PlayerBar() {
 
       ctx.clearRect(0, 0, displayWidth, displayHeight);
 
-      const barCount = Math.min(48, bufferLength);
-      const gap = 2;
-      const barWidth = (displayWidth - gap * (barCount - 1)) / barCount;
+      const pointCount = 64;
       const accentColor = getComputedStyle(document.documentElement).getPropertyValue("--mq-accent").trim() || "#e03131";
-
       let r = 224, g = 49, b = 49;
       if (accentColor.startsWith("#") && accentColor.length >= 7) {
         r = parseInt(accentColor.slice(1, 3), 16);
@@ -158,26 +155,47 @@ export default function PlayerBar() {
         b = parseInt(accentColor.slice(5, 7), 16);
       }
 
-      for (let i = 0; i < barCount; i++) {
-        const dataIndex = Math.floor(i * bufferLength / barCount);
+      const points: { x: number; y: number }[] = [];
+      for (let i = 0; i < pointCount; i++) {
+        const dataIndex = Math.floor(i * bufferLength / pointCount);
         const value = dataArray[dataIndex] / 255;
-        const barHeight = Math.max(2, value * displayHeight);
-
-        const x = i * (barWidth + gap);
-        const y = displayHeight - barHeight;
-
-        const mix = i / barCount;
-        const cr = Math.round(r + (255 - r) * mix * 0.3);
-        const cg = Math.round(g + (255 - g) * mix * 0.3);
-        const cb = Math.round(b + (255 - b) * mix * 0.3);
-
-        ctx.fillStyle = `rgba(${cr},${cg},${cb},1)`;
-        ctx.globalAlpha = 0.35 + value * 0.65;
-        ctx.beginPath();
-        ctx.roundRect(x, y, barWidth, barHeight, 1.5);
-        ctx.fill();
+        const x = (i / (pointCount - 1)) * displayWidth;
+        const y = displayHeight / 2 - value * (displayHeight / 2 - 2);
+        points.push({ x, y });
       }
-      ctx.globalAlpha = 1;
+
+      // Draw filled wave
+      const gradient = ctx.createLinearGradient(0, 0, displayWidth, 0);
+      gradient.addColorStop(0, `rgba(${r},${g},${b},0.3)`);
+      gradient.addColorStop(0.5, `rgba(${r},${g},${b},0.6)`);
+      gradient.addColorStop(1, `rgba(${r},${g},${b},0.3)`);
+
+      ctx.beginPath();
+      ctx.moveTo(0, displayHeight);
+      for (let i = 0; i < points.length; i++) {
+        if (i === 0) {
+          ctx.lineTo(points[i].x, points[i].y);
+        } else {
+          const cpx = (points[i - 1].x + points[i].x) / 2;
+          ctx.quadraticCurveTo(points[i - 1].x, points[i - 1].y, cpx, (points[i - 1].y + points[i].y) / 2);
+        }
+      }
+      ctx.lineTo(displayWidth, points[points.length - 1].y);
+      ctx.lineTo(displayWidth, displayHeight);
+      ctx.closePath();
+      ctx.fillStyle = gradient;
+      ctx.fill();
+
+      // Draw wave line on top
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) {
+        const cpx = (points[i - 1].x + points[i].x) / 2;
+        ctx.quadraticCurveTo(points[i - 1].x, points[i - 1].y, cpx, (points[i - 1].y + points[i].y) / 2);
+      }
+      ctx.strokeStyle = `rgba(${r},${g},${b},0.9)`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
     };
 
     draw();
@@ -392,6 +410,23 @@ export default function PlayerBar() {
         <div className="absolute top-full right-1 text-[9px] mt-0.5 hidden sm:block" style={{ color: "var(--mq-text-muted)" }}>
           {formatDuration(Math.floor(duration))}
         </div>
+      </div>
+
+      {/* Track info under progress bar */}
+      <div className="flex items-center justify-between px-3 py-1 text-[10px]" style={{ color: "var(--mq-text-muted)" }}>
+        <div className="flex-1 min-w-0 mr-2">
+          <span className="truncate block">{currentTrack.title} — {currentTrack.artist}</span>
+        </div>
+        <button 
+          onClick={() => {
+            setFullTrackViewOpen(true);
+          }}
+          className="flex items-center gap-1 px-2 py-0.5 rounded-full flex-shrink-0 cursor-pointer"
+          style={{ backgroundColor: "var(--mq-card)", border: "1px solid var(--mq-border)", color: "var(--mq-accent)" }}
+        >
+          <Sparkles className="w-3 h-3" />
+          Похожие
+        </button>
       </div>
 
       <div className="flex items-center justify-between px-3 py-2 lg:px-6 lg:py-3 max-w-screen-2xl mx-auto">

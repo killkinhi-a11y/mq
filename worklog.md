@@ -48,3 +48,36 @@ Stage Summary:
 - Port 81 (Caddy proxy): ✅ HTTP 200
 - Port 8080: Not listening (Caddy binds to port 81 in this environment)
 - All 4 feature requests implemented
+
+---
+Task ID: 1-7
+Agent: main
+Task: Fix PiP crash, messenger bots, friends list, track switching, similar button, visualization, recommendations
+
+Work Log:
+- Fixed PiP crash by rewriting PiPPlayer.tsx: removed AnimatePresence/motion.div, used plain div with CSS transitions, position tracked via refs not state during drag, overflow: hidden, z-index: 9999
+- Removed bot auto-replies from MessengerView.tsx: removed typingContactId state, removed setTimeout fake response logic, removed typing indicator UI, kept handleSend/addMessage/shareTrack intact
+- Replaced "Популярное" with "Друзья" (24 контактов) in MainView.tsx stat cards, imports MessageCircle instead of TrendingUp
+- Added allTracks prop to TrackCard for proper queue management, updated all parent components (MainView, SearchView, FullTrackView, HistoryView, PlaylistView) to pass allTracks
+- Added "Похожие" button with Sparkles icon near progress bar in PlayerBar.tsx, shows track title/artist below progress bar
+- Replaced bar visualization with waveform in PlayerBar.tsx using quadratic bezier curves with gradient fill
+- Replaced circular bar visualization with pulsing concentric rings in FullTrackView.tsx using bass/mid frequency energy
+- Improved recommendations API with better query construction, artwork filtering, and expanded fallback genres
+
+Files Modified:
+- src/components/mq/PiPPlayer.tsx — full rewrite without framer-motion
+- src/components/mq/MessengerView.tsx — removed bot replies and typing indicator
+- src/components/mq/MainView.tsx — replaced Популярное with Друзья, added allTracks to TrackCard
+- src/components/mq/TrackCard.tsx — renamed queue to allTracks, passes to playTrack
+- src/components/mq/PlayerBar.tsx — added Похожие button, waveform visualization
+- src/components/mq/FullTrackView.tsx — pulsing ring visualization, allTracks prop
+- src/components/mq/SearchView.tsx — added allTracks prop
+- src/components/mq/HistoryView.tsx — added allTracks prop
+- src/components/mq/PlaylistView.tsx — added allTracks prop
+- src/app/api/music/recommendations/route.ts — improved query logic and quality filters
+
+Stage Summary:
+- All 7 fixes implemented
+- Build successful: `next build` — ✅ no errors
+- Port 3000: ✅ HTTP 200
+- Port 81: ✅ HTTP 200

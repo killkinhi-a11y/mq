@@ -6,12 +6,12 @@ import { motion } from "framer-motion";
 import { type Track, getRecommendations } from "@/lib/musicApi";
 import TrackCard from "./TrackCard";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Heart, TrendingUp, Clock, ListMusic, Music, Sparkles, RefreshCw, Play } from "lucide-react";
+import { Heart, MessageCircle, Clock, ListMusic, Music, Sparkles, RefreshCw } from "lucide-react";
 
 export default function MainView() {
   const {
     animationsEnabled, playTrack, likedTrackIds, likedTracksData,
-    history, playlists, setView,
+    history, playlists, setView, contacts,
   } = useAppStore();
 
   const [trendingTracks, setTrendingTracks] = useState<Track[]>([]);
@@ -130,22 +130,18 @@ export default function MainView() {
       value: `${likedTrackIds.length} треков`,
       onClick: () => {
         if (likedTracksData.length > 0) {
-          // If there are liked tracks, play them all
           handlePlayLiked();
         } else {
-          // Go to search to find music to like
           setView("search");
         }
       },
     },
     {
-      icon: TrendingUp,
-      label: "Популярное",
-      value: "Сейчас",
+      icon: MessageCircle,
+      label: "Друзья",
+      value: `${contacts.length}`,
       onClick: () => {
-        if (trendingTracks.length > 0) {
-          handlePlayAll();
-        }
+        setView("messenger");
       },
     },
     {
@@ -225,7 +221,7 @@ export default function MainView() {
           </div>
           <div className="space-y-2">
             {recentTracks.map((entry, i) => (
-              <TrackCard key={entry.track.id + "_" + entry.playedAt} track={entry.track} index={i} />
+              <TrackCard key={entry.track.id + "_" + entry.playedAt} track={entry.track} index={i} queue={recentTracks.map(e => e.track)} />
             ))}
           </div>
         </div>
@@ -276,7 +272,7 @@ export default function MainView() {
         {!isRecLoading && recommendations.length > 0 && (
           <div className="space-y-2">
             {recommendations.slice(0, 8).map((track, i) => (
-              <TrackCard key={track.id} track={track} index={i} />
+              <TrackCard key={track.id} track={track} index={i} queue={recommendations} />
             ))}
           </div>
         )}
@@ -322,7 +318,7 @@ export default function MainView() {
         {!isLoading && trendingTracks.length > 0 && (
           <div className="space-y-2">
             {trendingTracks.slice(0, 10).map((track, i) => (
-              <TrackCard key={track.id} track={track} index={i} />
+              <TrackCard key={track.id} track={track} index={i} queue={trendingTracks} />
             ))}
           </div>
         )}

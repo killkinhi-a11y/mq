@@ -27,17 +27,6 @@ function setCache(key: string, data: unknown): void {
   cache.set(key, { data, expiry: Date.now() + CACHE_TTL });
 }
 
-const fallbackQueries = [
-  "chill vibes",
-  "lofi hip hop",
-  "deep house mix",
-  "indie acoustic",
-  "ambient electronic",
-  "soul r&b new",
-  "synthwave retro",
-  "jazz lounge",
-];
-
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const genre = searchParams.get("genre") || "random";
@@ -49,15 +38,9 @@ export async function GET(request: NextRequest) {
     (excludeParam || "").split(",").filter(Boolean)
   );
 
-  // Parse taste data
-  const genres: string[] = genresParam
-    ? genresParam.split(",").filter(Boolean)
-    : [];
-  const artists: string[] = artistsParam
-    ? artistsParam.split(",").filter(Boolean).slice(0, 3)
-    : [];
+  const genres: string[] = genresParam ? genresParam.split(",").filter(Boolean) : [];
+  const artists: string[] = artistsParam ? artistsParam.split(",").filter(Boolean).slice(0, 3) : [];
 
-  // Build cache key from taste profile
   const tasteKey = `${genre}:${genresParam || ""}:${artistsParam || ""}`;
   const cacheKey = `rec:smart:${tasteKey}`;
   const cached = getFromCache(cacheKey);
@@ -67,29 +50,35 @@ export async function GET(request: NextRequest) {
     let queries: string[] = [];
 
     if (genres.length > 0 || artists.length > 0) {
-      // Taste-based recommendations
+      // Taste-based: search for specific genres and artists
       for (const g of genres.slice(0, 3)) {
-        queries.push(`${g} new music 2025`);
+        queries.push(g);  // Simple genre search works better
       }
-      for (const a of artists) {
-        queries.push(`${a} similar artists`);
+      for (const a of artists.slice(0, 2)) {
+        queries.push(a);
       }
-      // Add some variety
+      // Add related searches
       if (genres.length > 0) {
-        queries.push(`${genres[0]} mix`);
+        queries.push(`${genres[0]} 2025`);
+        queries.push(`best ${genres[0]}`);
       }
     } else if (genre !== "random") {
-      queries = [`${genre} new music`, `${genre} popular 2025`];
+      queries = [genre, `${genre} 2025`, `top ${genre}`];
     } else {
-      // Fallback: random discovery
-      queries = [...fallbackQueries].sort(() => Math.random() - 0.5).slice(0, 3);
+      // Better fallback: popular/trending searches
+      const fallbacks = [
+        "new music", "trending", "popular", "chill", "lofi",
+        "electronic", "indie", "hip hop", "rock", "jazz",
+        "ambient", "deep house", "synthwave", "r&b soul",
+        "drum and bass", "techno", "acoustic", "piano"
+      ];
+      queries = fallbacks.sort(() => Math.random() - 0.5).slice(0, 3);
     }
 
-    // Deduplicate and limit queries
     queries = [...new Set(queries)].slice(0, 4);
 
     const results = await Promise.allSettled(
-      queries.map((q) => searchSCTracks(q, 10))
+      queries.map((q) => searchSCTracks(q, 12))
     );
 
     const allTracks: Awaited<ReturnType<typeof searchSCTracks>> = [];
@@ -98,9 +87,10 @@ export async function GET(request: NextRequest) {
     for (const result of results) {
       if (result.status !== "fulfilled") continue;
       for (const track of result.value) {
-        // Skip excluded tracks
         if (excludeIds.has(track.id)) continue;
         if (seenIds.has(track.scTrackId)) continue;
+        // Filter out tracks without artwork for better quality
+        if (!track.cover) continue;
         seenIds.add(track.scTrackId);
         allTracks.push(track);
       }

@@ -83,6 +83,7 @@ interface AppState {
   // Similar tracks panel
   similarTracks: Track[];
   similarTracksLoading: boolean;
+  showSimilarRequested: boolean;
 
   // Playlists
   playlists: UserPlaylist[];
@@ -149,6 +150,8 @@ interface AppState {
   // Similar tracks actions
   setSimilarTracks: (tracks: Track[]) => void;
   setSimilarTracksLoading: (loading: boolean) => void;
+  requestShowSimilar: () => void;
+  clearShowSimilarRequest: () => void;
 
   // Playlist actions
   createPlaylist: (name: string, description?: string) => void;
@@ -196,13 +199,7 @@ const initialState = {
   messages: [] as ChatMessage[],
   selectedContactId: null as string | null,
   unreadCounts: {} as Record<string, number>,
-  contacts: [
-    { id: "c1", name: "Александр", username: "alex_s", avatar: "https://picsum.photos/seed/avatar1/100/100", online: true, lastSeen: "Сейчас" },
-    { id: "c2", name: "Мария", username: "masha_m", avatar: "https://picsum.photos/seed/avatar2/100/100", online: true, lastSeen: "Сейчас" },
-    { id: "c3", name: "Дмитрий", username: "dima_d", avatar: "https://picsum.photos/seed/avatar3/100/100", online: false, lastSeen: "2 часа назад" },
-    { id: "c4", name: "Елена", username: "elena_k", avatar: "https://picsum.photos/seed/avatar4/100/100", online: false, lastSeen: "Вчера" },
-    { id: "c5", name: "Максим", username: "max_v", avatar: "https://picsum.photos/seed/avatar5/100/100", online: true, lastSeen: "Сейчас" },
-  ] as { id: string; name: string; username: string; avatar: string; online: boolean; lastSeen: string }[],
+  contacts: [] as { id: string; name: string; username: string; avatar: string; online: boolean; lastSeen: string }[],
   searchQuery: "",
   selectedGenre: "",
   isLoading: false,
@@ -213,6 +210,7 @@ const initialState = {
   isPiPActive: false,
   similarTracks: [] as Track[],
   similarTracksLoading: false,
+  showSimilarRequested: false,
   playlists: [] as UserPlaylist[],
   selectedPlaylistId: null as string | null,
   history: [] as HistoryEntry[],
@@ -425,6 +423,8 @@ export const useAppStore = create<AppState>()(
 
       setSimilarTracks: (tracks) => set({ similarTracks: tracks }),
       setSimilarTracksLoading: (loading) => set({ similarTracksLoading: loading }),
+      requestShowSimilar: () => set({ showSimilarRequested: true, isFullTrackViewOpen: true }),
+      clearShowSimilarRequest: () => set({ showSimilarRequested: false }),
 
       // ── Playlist actions ──
       createPlaylist: (name, description = "") => {
