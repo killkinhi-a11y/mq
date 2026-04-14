@@ -10,7 +10,7 @@ export async function simulateEncrypt(text: string): Promise<string> {
   return `${ENCRYPTION_PREFIX}${MOCK_IV}:${encoded}`;
 }
 
-export async function simulateDecrypt(encryptedText: string): Promise<string> {
+export function simulateDecryptSync(encryptedText: string): string {
   if (!encryptedText.startsWith(ENCRYPTION_PREFIX)) {
     return encryptedText;
   }
@@ -21,6 +21,10 @@ export async function simulateDecrypt(encryptedText: string): Promise<string> {
   } catch {
     return encryptedText;
   }
+}
+
+export async function simulateDecrypt(encryptedText: string): Promise<string> {
+  return simulateDecryptSync(encryptedText);
 }
 
 export function isEncrypted(text: string): boolean {

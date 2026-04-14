@@ -9,7 +9,7 @@ import {
   Lock, Shield, Send, ArrowLeft, Search, ShieldCheck, Phone, Smile, Trash2,
   Plus, Music2, X, Loader2, Copy, Reply, MoreVertical
 } from "lucide-react";
-import { simulateEncrypt, getEncryptionStatus, generateMockFingerprint, simulateDecrypt } from "@/lib/crypto";
+import { simulateEncrypt, getEncryptionStatus, generateMockFingerprint, simulateDecryptSync } from "@/lib/crypto";
 
 interface FetchedUser {
   id: string;
@@ -279,7 +279,7 @@ export default function MessengerView() {
 
   const handleCopyMessage = (msg: typeof contactMessages[0]) => {
     try {
-      const decrypted = simulateDecrypt(msg.content);
+      const decrypted = simulateDecryptSync(msg.content);
       navigator.clipboard.writeText(decrypted).catch(() => {});
     } catch {
       navigator.clipboard.writeText(msg.content).catch(() => {});
@@ -290,7 +290,7 @@ export default function MessengerView() {
   const handleReplyMessage = (msg: typeof contactMessages[0]) => {
     let replyText = "";
     try {
-      const decrypted = simulateDecrypt(msg.content);
+      const decrypted = simulateDecryptSync(msg.content);
       replyText = decrypted.length > 40 ? decrypted.slice(0, 40) + "..." : decrypted;
     } catch {
       replyText = msg.content.slice(0, 40) + "...";
@@ -441,7 +441,7 @@ export default function MessengerView() {
                             {lastMsg.senderId === userId ? "Вы: " : ""}
                             {(() => {
                               try {
-                                const decrypted = simulateDecrypt(lastMsg.content);
+                                const decrypted = simulateDecryptSync(lastMsg.content);
                                 return decrypted.length > 30 ? decrypted.slice(0, 30) + "..." : decrypted;
                               } catch {
                                 return lastMsg.content.slice(0, 30) + "...";

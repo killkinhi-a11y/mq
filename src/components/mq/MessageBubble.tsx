@@ -3,7 +3,7 @@
 import { useAppStore } from "@/store/useAppStore";
 import { motion } from "framer-motion";
 import { Lock } from "lucide-react";
-import { simulateDecrypt } from "@/lib/crypto";
+import { simulateDecryptSync } from "@/lib/crypto";
 
 interface MessageBubbleProps {
   message: {
@@ -28,7 +28,7 @@ export default function MessageBubble({ message, currentUserId }: MessageBubbleP
   // Decrypt content for display
   const displayContent = (() => {
     try {
-      return simulateDecrypt(message.content);
+      return simulateDecryptSync(message.content);
     } catch {
       return message.content;
     }
