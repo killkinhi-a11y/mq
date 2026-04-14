@@ -25,34 +25,58 @@ const viewVariants = {
 };
 
 export default function Home() {
+  const [mounted, setMounted] = useState(false);
   const {
     currentView, currentTheme, customAccent, fontSize, animationsEnabled,
     isAuthenticated, setView,
   } = useAppStore();
 
+  // Wait for client-side hydration before rendering app UI
+  // This prevents hydration mismatch from Zustand localStorage persist
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   // Fix: if authenticated but stuck on auth view, redirect to main
   useEffect(() => {
+    if (!mounted) return;
     if (isAuthenticated && currentView === "auth") {
       setView("main");
     }
-  }, [isAuthenticated, currentView, setView]);
+  }, [mounted, isAuthenticated, currentView, setView]);
 
   // Apply theme to DOM
   useEffect(() => {
+    if (!mounted) return;
     const theme = themes[currentTheme];
     if (!theme) {
-      // Reset to default if stored theme doesn't exist
       useAppStore.getState().setTheme("default");
       applyThemeToDOM(themes.default, customAccent || undefined);
     } else {
       applyThemeToDOM(theme, customAccent || undefined);
     }
-  }, [currentTheme, customAccent]);
+  }, [mounted, currentTheme, customAccent]);
 
   // Apply font size
   useEffect(() => {
+    if (!mounted) return;
     document.documentElement.style.fontSize = `${fontSize}px`;
-  }, [fontSize]);
+  }, [mounted, fontSize]);
+
+  // Don't render interactive UI until hydrated
+  if (!mounted) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center"
+        style={{ backgroundColor: "var(--mq-bg, #0e0e0e)" }}
+      >
+        <div
+          className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin"
+          style={{ borderColor: "var(--mq-accent, #e03131)", borderTopColor: "transparent" }}
+        />
+      </div>
+    );
+  }
 
   const renderView = () => {
     switch (currentView) {
