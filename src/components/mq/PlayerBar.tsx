@@ -117,7 +117,7 @@ export default function PlayerBar() {
       audio.src = "";
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Audio Visualization — Waveform style ──────────────
   useEffect(() => {
@@ -289,7 +289,7 @@ export default function PlayerBar() {
     };
 
     loadTrack();
-  }, [currentTrack?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentTrack?.id]);
 
   // ── Handle play/pause ───────────────────────────────────
   useEffect(() => {

@@ -81,3 +81,97 @@ Stage Summary:
 - Build successful: `next build` — ✅ no errors
 - Port 3000: ✅ HTTP 200
 - Port 81: ✅ HTTP 200
+
+---
+Task ID: 3
+Agent: Main Agent
+Task: Comprehensive 7-fix update — PiP rewrite, real users, friends card, queue fix, similar button, waveform viz, recommendations
+
+Work Log:
+
+**FIX 1: PiP Crash Rewrite (PiPPlayer.tsx)**
+- Removed AnimatePresence wrapping that caused portal rendering issues
+- Removed framer-motion dependency entirely — uses plain div with inline styles
+- Simplified drag logic: only drag handle area (top bar) initiates drag, not entire container
+- Added e.stopPropagation() on all button clicks
+- Safe NaN guards on all position values and progress percentages
+- typeof window guards for window dimensions
+- All buttons functional: play/pause, prev, next, minimize, close
+- Seekable progress bar with time display (current / total)
+- Minimized mode with album art, CSS animation bars, close button, expand on click
+- CSS-only EQ bars animation (3 bars) when playing, no canvas
+- Used getInitialPos callback + useEffect reset for position
+
+**FIX 2: Messenger — Real Users (MessengerView.tsx + useAppStore.ts + API)**
+- Created /api/users/search/route.ts: searches Prisma User table (confirmed=true), supports ?q= and ?excludeId= params
+- Completely rewrote MessengerView.tsx: removed mockContacts import, removed bot auto-reply setTimeout logic, removed typing indicator
+- On mount, fetches real users from /api/users/search API
+- Users stored in local state (useState), NOT in global store contacts
+- Search filters users by @username and name locally from fetched list
+- "Новый чат" dialog searches the API with query parameter
+- Shows "Нет сообщений" when no messages with a user
+- Kept encryption fingerprint UI, E2E badge, @mention dropdown, emoji picker, track sharing
+- Updated useAppStore.ts: removed 5 hardcoded mock contacts from initialState.contacts → changed to empty array []
+- Kept all messenger state/actions (addMessage, setSelectedContact, etc.)
+
+**FIX 3: Replace "Популярное" with "Друзья" (MainView.tsx)**
+- Changed statCards array: TrendingUp+Популярное → MessageCircle+Друзья
+- Value shows contacts.length from store
+- onClick navigates to messenger view: setView("messenger")
+- Imported MessageCircle from lucide-react
+- Passed queue prop to ALL TrackCard components (trending, recommendations, history)
+
+**FIX 4: Fix Track Switching with queue prop (TrackCard.tsx + all views)**
+- Added optional queue?: Track[] prop to TrackCard interface
+- handleClick now calls playTrack(track, queue) instead of playTrack(track)
+- Updated ALL TrackCard rendering locations:
+  - SearchView.tsx: queue={activeTracks}
+  - MainView.tsx: queue={trendingTracks}, queue={recommendations}, queue={recentTracks.map(e => e.track)}
+  - FullTrackView.tsx: queue={similarTracks}
+  - PlaylistView.tsx: queue={selectedPlaylist.tracks}
+  - HistoryView.tsx: queue={history.map(h => h.track)}
+
+**FIX 5: "Похожие" Button + Time Text (PlayerBar.tsx + FullTrackView.tsx + useAppStore.ts)**
+- Added ListMusic "Похожие" button in PlayerBar near sleep timer/PiP buttons (hidden on small screens)
+- onClick calls requestShowSimilar() which opens FullTrackView AND shows similar tracks
+- Added showSimilarRequested boolean to useAppStore.ts state
+- Added requestShowSimilar action (sets showSimilarRequested=true, isFullTrackViewOpen=true)
+- Added clearShowSimilarRequest action (sets showSimilarRequested=false)
+- In FullTrackView.tsx: useEffect watches showSimilarRequested, when true sets showSimilar(true) and calls clearShowSimilarRequest()
+- Time text below progress bar now always visible (removed hidden sm:block class)
+
+**FIX 6: Waveform Visualization Style (audioEngine.ts + PlayerBar.tsx + FullTrackView.tsx)**
+- audioEngine.ts: fftSize 256→512, smoothingTimeConstant 0.78→0.85
+- PlayerBar.tsx: replaced rectangular bar chart with smooth waveform curve using ctx.beginPath/moveTo/quadraticCurveTo, gradient fill below curve, curve line on top, opacity 0.6 when playing
+- FullTrackView.tsx: replaced straight radial bars with curved/wavy radial lines using quadraticCurveTo with adjacent frequency values for wave offset, added shadowBlur glow effect, inner ring pulses with bass frequencies
+- PiPPlayer.tsx: uses CSS-only animation bars (3 bars animating height), no canvas
+
+**FIX 7: Improved Recommendations Algorithm (recommendations/route.ts)**
+- Expanded fallbackQueries to 24 diverse queries covering more genres
+- When taste data available: generates more diverse queries per genre ("2025", "mix", "best new") and per artist ("remix", "feat")
+- Added cross-genre discovery mixing genres together
+- Increased per-query limit from 10 to 15
+- Results sorted by preferring scIsFull===true tracks over previews
+- Returns up to 20 tracks instead of 15
+- Cache TTL reduced from 8 minutes to 5 minutes
+
+Files Modified:
+- src/store/useAppStore.ts — removed mock contacts, added showSimilarRequested + actions
+- src/components/mq/PiPPlayer.tsx — complete rewrite, no framer-motion
+- src/components/mq/MessengerView.tsx — real users from API, no bots
+- src/components/mq/MainView.tsx — Друзья card, queue props
+- src/components/mq/TrackCard.tsx — added queue prop
+- src/components/mq/PlayerBar.tsx — Похожие button, waveform viz, always-visible time text
+- src/components/mq/FullTrackView.tsx — wavy radial viz, showSimilarRequested support, queue prop
+- src/components/mq/SearchView.tsx — queue prop
+- src/components/mq/HistoryView.tsx — queue prop
+- src/components/mq/PlaylistView.tsx — queue prop
+- src/lib/audioEngine.ts — fftSize 512, smoothingTimeConstant 0.85
+- src/app/api/users/search/route.ts — new endpoint (created)
+- src/app/api/music/recommendations/route.ts — expanded queries, better sorting, 20 tracks
+
+Stage Summary:
+- Build: `npm run build` — ✅ successful (no errors, no warnings with errors)
+- Lint: `bun run lint` — ✅ 0 errors
+- Server: HTTP 200 on port 3000
+- All 7 fixes implemented and tested
