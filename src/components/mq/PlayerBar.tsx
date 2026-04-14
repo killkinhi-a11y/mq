@@ -117,12 +117,10 @@ export default function PlayerBar() {
       initial={animationsEnabled ? { y: 100 } : undefined}
       animate={{ y: 0 }}
       transition={{ type: "spring", stiffness: 200, damping: 25 }}
-      className="fixed bottom-0 left-0 right-0 z-40 lg:bottom-0"
+      className="fixed left-0 right-0 z-40 lg:bottom-0 bottom-[56px]"
       style={{
         backgroundColor: "var(--mq-player-bg)",
         borderTop: "1px solid var(--mq-border)",
-        paddingBottom: "env(safe-area-inset-bottom, 0px)",
-        marginBottom: currentView !== "auth" ? undefined : "0",
       }}
     >
       {/* Progress bar on top */}

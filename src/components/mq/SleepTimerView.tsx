@@ -53,7 +53,7 @@ export default function SleepTimerView() {
 
   return (
     <div
-      className="min-h-screen p-4 lg:p-6 pb-32 lg:pb-28 flex flex-col items-center justify-center relative overflow-hidden"
+      className="min-h-screen p-4 lg:p-6 pb-40 lg:pb-28 flex flex-col items-center justify-center relative overflow-hidden"
       style={{ backgroundColor: "var(--mq-bg)" }}
     >
       {/* Stars background */}

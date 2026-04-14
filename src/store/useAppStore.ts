@@ -278,6 +278,7 @@ export const useAppStore = create<AppState>()(
         username: state.username,
         email: state.email,
         messages: state.messages,
+        currentView: state.currentView,
       }),
     }
   )

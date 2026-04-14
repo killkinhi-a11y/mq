@@ -23,7 +23,15 @@ const viewVariants = {
 export default function Home() {
   const {
     currentView, currentTheme, customAccent, fontSize, animationsEnabled,
+    isAuthenticated, setView,
   } = useAppStore();
+
+  // Fix: if authenticated but stuck on auth view, redirect to main
+  useEffect(() => {
+    if (isAuthenticated && currentView === "auth") {
+      setView("main");
+    }
+  }, [isAuthenticated, currentView, setView]);
 
   // Apply theme to DOM
   useEffect(() => {
@@ -55,6 +63,7 @@ export default function Home() {
     }
   };
 
+  // Fix: if authenticated but stuck on auth view, redirect to main
   const showNav = currentView !== "auth";
 
   return (

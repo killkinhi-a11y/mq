@@ -37,7 +37,7 @@ export default function SearchView() {
   }, [searchQuery, selectedGenre]);
 
   return (
-    <div className="p-4 lg:p-6 pb-32 lg:pb-28 space-y-4">
+    <div className="p-4 lg:p-6 pb-40 lg:pb-28 space-y-4">
       {/* Search bar */}
       <motion.div
         initial={animationsEnabled ? { opacity: 0, y: -10 } : undefined}

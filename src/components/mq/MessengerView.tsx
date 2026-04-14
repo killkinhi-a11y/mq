@@ -88,8 +88,8 @@ export default function MessengerView() {
 
   const contactMessages = messages.filter(
     (m) =>
-      (selectedContactId && m.senderId === selectedContactId) ||
-      (userId && m.receiverId === selectedContactId)
+      (userId && m.senderId === userId && m.receiverId === selectedContactId) ||
+      (m.senderId === selectedContactId && userId && m.receiverId === userId)
   );
 
   return (

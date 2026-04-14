@@ -11,7 +11,7 @@ export default function MainView() {
   const { animationsEnabled, setView } = useAppStore();
 
   return (
-    <div className="p-4 lg:p-6 pb-32 lg:pb-28 space-y-6">
+    <div className="p-4 lg:p-6 pb-40 lg:pb-28 space-y-6">
       {/* Hero */}
       <motion.div
         initial={animationsEnabled ? { opacity: 0, y: 20 } : undefined}

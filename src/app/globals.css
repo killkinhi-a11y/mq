@@ -264,9 +264,16 @@ input[type="color"]::-webkit-color-swatch {
   border-radius: 6px;
 }
 
-/* Smooth theme transitions */
-* {
-  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.2s ease;
+/* Smooth theme transitions — only for color properties, not transform/opacity */
+*, *::before, *::after {
+  transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* Framer Motion managed elements — no CSS transition interference */
+[data-framer-motion-id],
+[data-framer-motion-id] *,
+.mq-no-transition {
+  transition: none !important;
 }
 
 /* Disable transitions during page load */
