@@ -1,0 +1,291 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* MQ Player Theme Variables */
+:root {
+  --mq-bg: #0e0e0e;
+  --mq-card: #1a1a1a;
+  --mq-card-hover: #252525;
+  --mq-accent: #e03131;
+  --mq-text: #f5f5f5;
+  --mq-text-muted: #888888;
+  --mq-border: #333333;
+  --mq-input-bg: #1a1a1a;
+  --mq-player-bg: #151515;
+  --mq-nav-bg: #0e0e0eee;
+  --mq-gradient: radial-gradient(ellipse at 20% 50%, rgba(224,49,49,0.08) 0%, transparent 50%);
+  --mq-glow: rgba(224,49,49,0.3);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--mq-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--mq-text-muted);
+}
+
+/* Gothic theme styles */
+.gothic-theme {
+  --mq-bg: #0a0a12;
+  --mq-card: #15152a;
+  --mq-card-hover: #1e1e3a;
+  --mq-accent: #8b5cf6;
+  --mq-text: #e8e0f0;
+  --mq-text-muted: #7a7290;
+  --mq-border: #2a2a4a;
+  --mq-input-bg: #15152a;
+  --mq-player-bg: #0d0d1a;
+  --mq-nav-bg: #0a0a12ee;
+  --mq-gradient: radial-gradient(ellipse at 20% 50%, rgba(139,92,246,0.1) 0%, transparent 50%);
+  --mq-glow: rgba(139,92,246,0.3);
+}
+
+.gothic-theme * {
+  font-family: "Georgia", "Times New Roman", serif;
+}
+
+.gothic-theme .rounded-2xl,
+.gothic-theme .rounded-xl {
+  border-radius: 2px !important;
+  box-shadow: inset 0 0 0 1px var(--mq-border), 0 0 0 1px var(--mq-border);
+}
+
+/* Minecraft theme styles */
+.minecraft-theme {
+  --mq-bg: #2c1e0e;
+  --mq-card: #3d2b1a;
+  --mq-card-hover: #4a3520;
+  --mq-accent: #4ade80;
+  --mq-text: #e8dcc8;
+  --mq-text-muted: #9a8a6a;
+  --mq-border: #5a4a2a;
+  --mq-input-bg: #3d2b1a;
+  --mq-player-bg: #2a1c0c;
+  --mq-nav-bg: #2c1e0eee;
+  --mq-gradient: radial-gradient(ellipse at 20% 50%, rgba(74,222,128,0.06) 0%, transparent 50%);
+  --mq-glow: rgba(74,222,128,0.3);
+}
+
+.minecraft-theme * {
+  font-family: "Courier New", monospace;
+  image-rendering: pixelated;
+}
+
+.minecraft-theme .rounded-2xl,
+.minecraft-theme .rounded-xl,
+.minecraft-theme .rounded-lg,
+.minecraft-theme .rounded-full {
+  border-radius: 0 !important;
+}
+
+.minecraft-theme img {
+  image-rendering: pixelated;
+}
+
+/* Range input styling */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--mq-border);
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--mq-accent);
+  cursor: pointer;
+  box-shadow: 0 0 8px var(--mq-glow);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--mq-accent);
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 0 8px var(--mq-glow);
+}
+
+/* Color input */
+input[type="color"] {
+  -webkit-appearance: none;
+  appearance: none;
+  border: 1px solid var(--mq-border);
+  border-radius: 8px;
+  padding: 2px;
+  cursor: pointer;
+}
+
+input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 6px;
+}
+
+/* Smooth theme transitions */
+* {
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.2s ease;
+}
+
+/* Disable transitions during page load */
+.no-transition * {
+  transition: none !important;
+}
+
+/* Pulse animation for active player */
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 8px var(--mq-glow); }
+  50% { box-shadow: 0 0 20px var(--mq-glow); }
+}
+
+.player-glow {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+/* Selection color */
+::selection {
+  background: var(--mq-accent);
+  color: var(--mq-text);
+}
