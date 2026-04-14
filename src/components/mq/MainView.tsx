@@ -10,7 +10,7 @@ import { Heart, MessageCircle, Clock, ListMusic, Music, Sparkles, RefreshCw } fr
 
 export default function MainView() {
   const {
-    animationsEnabled, playTrack, likedTrackIds, likedTracksData,
+    animationsEnabled, playTrack, likedTrackIds, dislikedTrackIds, likedTracksData,
     history, playlists, setView, contacts, messages, userId,
   } = useAppStore();
 
