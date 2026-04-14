@@ -12,37 +12,38 @@ export default function PiPPlayer() {
     progress, duration, nextTrack, prevTrack,
   } = useAppStore();
 
-  const [pos, setPos] = useState({ x: 16, y: 16 });
+  const getInitialPos = useCallback((): { x: number; y: number } => {
+    if (typeof window === "undefined") return { x: 16, y: 16 };
+    const w = 340;
+    const h = 140;
+    return {
+      x: Math.max(0, window.innerWidth - w - 16),
+      y: Math.max(0, window.innerHeight - h - 80),
+    };
+  }, []);
+
+  const [pos, setPos] = useState(getInitialPos);
   const [minimized, setMinimized] = useState(false);
   const dragOffset = useRef({ x: 0, y: 0 });
   const isDraggingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (isPiPActive && typeof window !== "undefined") {
-      const w = 340;
-      const h = 140;
-      setPos({
-        x: Math.max(0, window.innerWidth - w - 16),
-        y: Math.max(0, window.innerHeight - h - 80),
-      });
-      setMinimized(false);
-    }
-  }, [isPiPActive]);
 
   const progressPct = duration > 0 ? (progress / duration) * 100 : 0;
+  const safeProgressPct = isNaN(progressPct) ? 0 : Math.max(0, Math.min(100, progressPct));
 
-  if (!mounted || !isPiPActive || !currentTrack) return null;
+  // Reset position and minimized state when PiP activates
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => {
+    if (isPiPActive) {
+      setPos(getInitialPos());
+      setMinimized(false);
+    }
+  }, [isPiPActive, getInitialPos]);
 
-  const openFullView = () => {
+  const openFullView = useCallback(() => {
     setPiPActive(false);
     useAppStore.getState().setFullTrackViewOpen(true);
-  };
+  }, [setPiPActive]);
 
   const handleDragStart = useCallback((clientX: number, clientY: number) => {
     isDraggingRef.current = true;
@@ -53,12 +54,12 @@ export default function PiPPlayer() {
 
     const onMove = (cx: number, cy: number) => {
       if (!isDraggingRef.current) return;
-      const w = minimized ? 64 : 340;
-      const h = minimized ? 64 : 140;
+      const minW = minimized ? 64 : 340;
+      const minH = minimized ? 64 : 140;
       const maxX = typeof window !== "undefined" ? window.innerWidth : 1920;
       const maxY = typeof window !== "undefined" ? window.innerHeight : 1080;
-      const newX = Math.max(0, Math.min(cx - dragOffset.current.x, maxX - w));
-      const newY = Math.max(0, Math.min(cy - dragOffset.current.y, maxY - h));
+      const newX = Math.max(0, Math.min(cx - dragOffset.current.x, maxX - minW));
+      const newY = Math.max(0, Math.min(cy - dragOffset.current.y, maxY - minH));
       setPos({ x: newX, y: newY });
     };
 
@@ -81,7 +82,7 @@ export default function PiPPlayer() {
     document.addEventListener("touchend", onEnd);
   }, [pos, minimized]);
 
-  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleSeek = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
     const rectWidth = rect.width || 1;
@@ -91,11 +92,13 @@ export default function PiPPlayer() {
     useAppStore.getState().setProgress(newTime);
     const audio = getAudioElement();
     if (audio) audio.currentTime = newTime;
-  };
+  }, [duration]);
 
-  const safeProgressPct = isNaN(progressPct) ? 0 : Math.max(0, Math.min(100, progressPct));
+  // All hooks must be before any early return
   const w = minimized ? 64 : 340;
   const h = minimized ? 64 : 140;
+
+  if (!isPiPActive || !currentTrack) return null;
 
   return (
     <div

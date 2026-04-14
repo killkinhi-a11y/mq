@@ -5,7 +5,7 @@ import { useAppStore } from "@/store/useAppStore";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Repeat, Repeat1,
-  Shuffle, Music, Loader2, Moon, Clock, X, PictureInPicture2, Sparkles
+  Shuffle, Music, Loader2, Moon, Clock, X, PictureInPicture2, ListMusic
 } from "lucide-react";
 import { formatDuration } from "@/lib/musicApi";
 import { getAudioElement, initAudioEngine, getAnalyser, resumeAudioContext } from "@/lib/audioEngine";
@@ -30,7 +30,7 @@ export default function PlayerBar() {
     animationsEnabled, sleepTimerActive, sleepTimerRemaining,
     startSleepTimer, stopSleepTimer, updateSleepTimer,
     setFullTrackViewOpen, setPiPActive, isPiPActive,
-    setPlaybackMode,
+    setPlaybackMode, requestShowSimilar,
   } = useAppStore();
 
   const progressRef = useRef<HTMLDivElement>(null);
@@ -119,7 +119,7 @@ export default function PlayerBar() {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Audio Visualization ─────────────────────────────────
+  // ── Audio Visualization — Waveform style ──────────────
   useEffect(() => {
     const canvas = canvasRef.current;
     const analyser = getAnalyser();
@@ -148,6 +148,8 @@ export default function PlayerBar() {
 
       const pointCount = 64;
       const accentColor = getComputedStyle(document.documentElement).getPropertyValue("--mq-accent").trim() || "#e03131";
+
+      // Parse accent color
       let r = 224, g = 49, b = 49;
       if (accentColor.startsWith("#") && accentColor.length >= 7) {
         r = parseInt(accentColor.slice(1, 3), 16);
@@ -155,47 +157,52 @@ export default function PlayerBar() {
         b = parseInt(accentColor.slice(5, 7), 16);
       }
 
+      // Build data points
       const points: { x: number; y: number }[] = [];
       for (let i = 0; i < pointCount; i++) {
         const dataIndex = Math.floor(i * bufferLength / pointCount);
         const value = dataArray[dataIndex] / 255;
         const x = (i / (pointCount - 1)) * displayWidth;
-        const y = displayHeight / 2 - value * (displayHeight / 2 - 2);
+        const y = displayHeight - Math.max(2, value * displayHeight * 0.85);
         points.push({ x, y });
       }
 
-      // Draw filled wave
-      const gradient = ctx.createLinearGradient(0, 0, displayWidth, 0);
+      // Draw gradient fill under the curve
+      const gradient = ctx.createLinearGradient(0, 0, 0, displayHeight);
       gradient.addColorStop(0, `rgba(${r},${g},${b},0.3)`);
-      gradient.addColorStop(0.5, `rgba(${r},${g},${b},0.6)`);
-      gradient.addColorStop(1, `rgba(${r},${g},${b},0.3)`);
+      gradient.addColorStop(1, `rgba(${r},${g},${b},0.0)`);
 
       ctx.beginPath();
-      ctx.moveTo(0, displayHeight);
-      for (let i = 0; i < points.length; i++) {
-        if (i === 0) {
-          ctx.lineTo(points[i].x, points[i].y);
-        } else {
-          const cpx = (points[i - 1].x + points[i].x) / 2;
-          ctx.quadraticCurveTo(points[i - 1].x, points[i - 1].y, cpx, (points[i - 1].y + points[i].y) / 2);
-        }
+      ctx.moveTo(points[0].x, displayHeight);
+      ctx.lineTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) {
+        const prevPoint = points[i - 1];
+        const currPoint = points[i];
+        const cpx = (prevPoint.x + currPoint.x) / 2;
+        ctx.quadraticCurveTo(prevPoint.x, prevPoint.y, cpx, (prevPoint.y + currPoint.y) / 2);
       }
-      ctx.lineTo(displayWidth, points[points.length - 1].y);
+      ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
       ctx.lineTo(displayWidth, displayHeight);
       ctx.closePath();
       ctx.fillStyle = gradient;
+      ctx.globalAlpha = 0.6;
       ctx.fill();
 
-      // Draw wave line on top
+      // Draw the curve line on top
       ctx.beginPath();
       ctx.moveTo(points[0].x, points[0].y);
       for (let i = 1; i < points.length; i++) {
-        const cpx = (points[i - 1].x + points[i].x) / 2;
-        ctx.quadraticCurveTo(points[i - 1].x, points[i - 1].y, cpx, (points[i - 1].y + points[i].y) / 2);
+        const prevPoint = points[i - 1];
+        const currPoint = points[i];
+        const cpx = (prevPoint.x + currPoint.x) / 2;
+        ctx.quadraticCurveTo(prevPoint.x, prevPoint.y, cpx, (prevPoint.y + currPoint.y) / 2);
       }
-      ctx.strokeStyle = `rgba(${r},${g},${b},0.9)`;
+      ctx.strokeStyle = `rgba(${r},${g},${b},0.8)`;
       ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.6;
       ctx.stroke();
+
+      ctx.globalAlpha = 1;
     };
 
     draw();
@@ -228,10 +235,11 @@ export default function PlayerBar() {
       return;
     }
 
-    audio.pause();
-    audio.src = stream.url;
-    audio.load();
-    audio.play().catch(() => {
+    const audioEl = getAudioElement();
+    audioEl.pause();
+    audioEl.src = stream.url;
+    audioEl.load();
+    audioEl.play().catch(() => {
       setPlayError(true);
       setIsLoadingTrack(false);
     });
@@ -258,16 +266,17 @@ export default function PlayerBar() {
       setIsLoadingTrack(true);
       setPlayError(false);
 
-      audio.pause();
-      audio.src = "";
+      const audioEl = getAudioElement();
+      audioEl.pause();
+      audioEl.src = "";
 
       if (currentTrack.source === "soundcloud" && currentTrack.scTrackId) {
         await playWithSoundCloud(currentTrack.scTrackId, currentTrack);
       } else if (currentTrack.audioUrl) {
         setPlaybackMode("soundcloud");
-        audio.src = currentTrack.audioUrl;
-        audio.load();
-        audio.play().catch(() => {
+        audioEl.src = currentTrack.audioUrl;
+        audioEl.load();
+        audioEl.play().catch(() => {
           setPlayError(true);
           setIsLoadingTrack(false);
         });
@@ -297,8 +306,7 @@ export default function PlayerBar() {
 
   // ── Handle volume ───────────────────────────────────────
   useEffect(() => {
-    const audio = audioRef.current || getAudioElement();
-    if (audio) audio.volume = volume / 100;
+    getAudioElement().volume = volume / 100;
   }, [volume]);
 
   // ── Volume mouse wheel ──────────────────────────────────
@@ -317,10 +325,8 @@ export default function PlayerBar() {
     const newTime = pct * duration;
     setProgress(newTime);
 
-    const audio = audioRef.current || getAudioElement();
-    if (audio) {
-      audio.currentTime = newTime;
-    }
+    const audio = getAudioElement();
+    audio.currentTime = newTime;
   }, [duration, setProgress]);
 
   const handleProgressMouseDown = useCallback((e: React.MouseEvent) => {
@@ -404,29 +410,13 @@ export default function PlayerBar() {
           transform: "translate(-50%, -50%)",
           boxShadow: "0 0 6px var(--mq-glow)",
         }} />
-        <div className="absolute top-full left-1 text-[9px] mt-0.5 hidden sm:block" style={{ color: "var(--mq-text-muted)" }}>
+        {/* Time text - always visible (not just sm:block) */}
+        <div className="absolute top-full left-1 text-[9px] mt-0.5" style={{ color: "var(--mq-text-muted)" }}>
           {formatDuration(Math.floor(progress))}
         </div>
-        <div className="absolute top-full right-1 text-[9px] mt-0.5 hidden sm:block" style={{ color: "var(--mq-text-muted)" }}>
+        <div className="absolute top-full right-1 text-[9px] mt-0.5" style={{ color: "var(--mq-text-muted)" }}>
           {formatDuration(Math.floor(duration))}
         </div>
-      </div>
-
-      {/* Track info under progress bar */}
-      <div className="flex items-center justify-between px-3 py-1 text-[10px]" style={{ color: "var(--mq-text-muted)" }}>
-        <div className="flex-1 min-w-0 mr-2">
-          <span className="truncate block">{currentTrack.title} — {currentTrack.artist}</span>
-        </div>
-        <button 
-          onClick={() => {
-            setFullTrackViewOpen(true);
-          }}
-          className="flex items-center gap-1 px-2 py-0.5 rounded-full flex-shrink-0 cursor-pointer"
-          style={{ backgroundColor: "var(--mq-card)", border: "1px solid var(--mq-border)", color: "var(--mq-accent)" }}
-        >
-          <Sparkles className="w-3 h-3" />
-          Похожие
-        </button>
       </div>
 
       <div className="flex items-center justify-between px-3 py-2 lg:px-6 lg:py-3 max-w-screen-2xl mx-auto">
@@ -493,6 +483,17 @@ export default function PlayerBar() {
           <span className="text-xs hidden lg:block" style={{ color: "var(--mq-text-muted)" }}>
             {formatDuration(Math.floor(progress))} / {formatDuration(Math.floor(duration))}
           </span>
+
+          {/* Похожие button - visible on desktop */}
+          <motion.button
+            whileTap={{ scale: 0.9 }}
+            onClick={() => requestShowSimilar()}
+            className="p-2 hidden sm:block"
+            style={{ color: "var(--mq-text-muted)" }}
+            title="Похожие треки"
+          >
+            <ListMusic className="w-4 h-4" />
+          </motion.button>
 
           {/* Sleep timer */}
           <div className="relative">
@@ -561,11 +562,11 @@ export default function PlayerBar() {
         </div>
       </div>
 
-      {/* Audio visualization bar */}
+      {/* Audio visualization waveform */}
       <canvas
         ref={canvasRef}
         className="w-full pointer-events-none"
-        style={{ height: 32, opacity: isPlaying ? 0.85 : 0, transition: "opacity 0.3s" }}
+        style={{ height: 32, opacity: isPlaying ? 0.6 : 0, transition: "opacity 0.3s" }}
       />
     </motion.div>
   );
