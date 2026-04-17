@@ -53,3 +53,20 @@ Stage Summary:
 - Memory limit: 384MB (stable)
 - Both port 3000 and port 81 responding correctly
 - Caddy proxy working
+
+---
+Task ID: 94542 (cron health check)
+Agent: Super Z (main)
+Task: MQ Player health check — silent, results to worklog only
+
+Work Log:
+- curl localhost:3000 → 307 (redirect to /play, expected)
+- curl localhost:81 → 307 (Caddy proxy, expected)
+- ss -tlnp | grep 3000 → LISTEN (pid 16011, next-server v1)
+- Server alive, no action needed
+
+Stage Summary:
+- Port 3000: ✅ 307
+- Port 81: ✅ 307
+- Server PID: 16011
+- All healthy, no restart required
