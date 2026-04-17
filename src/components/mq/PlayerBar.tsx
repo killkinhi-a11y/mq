@@ -9,7 +9,7 @@ import {
   Heart, ThumbsDown, FileText, Download
 } from "lucide-react";
 import { formatDuration } from "@/lib/musicApi";
-import { getAudioElement, initAudioEngine, getAnalyser, resumeAudioContext, getFrequencyData, resetCorsState } from "@/lib/audioEngine";
+import { getAudioElement, initAudioEngine, getAnalyser, resumeAudioContext, resetCorsState } from "@/lib/audioEngine";
 
 async function resolveSoundCloudStream(scTrackId: number): Promise<{ url: string; isPreview: boolean; duration: number; fullDuration: number } | null> {
   try {
@@ -164,21 +164,41 @@ export default function PlayerBar() {
     };
   }, []);
 
-  // ── Audio Visualization — Waveform style ──────────────
+  // ── Decorative Visualization — ambient aurora, not tied to audio ──────────────
   useEffect(() => {
     const canvas = canvasRef.current;
-    const analyser = getAnalyser();
-    if (!canvas || !analyser) return;
+    if (!canvas) return;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    // Aurora blobs — soft flowing colored orbs
+    const blobCount = 5;
+    const blobs = Array.from({ length: blobCount }, (_, i) => ({
+      x: 0.15 + Math.random() * 0.7,
+      y: 0.2 + Math.random() * 0.6,
+      radius: 30 + Math.random() * 50,
+      phase: Math.random() * Math.PI * 2,
+      speedX: 0.05 + Math.random() * 0.1,
+      speedY: 0.03 + Math.random() * 0.08,
+      drift: 0.3 + Math.random() * 0.5,
+    }));
+
+    // Floating particles — tiny sparkles
+    const particleCount = 25;
+    const particles = Array.from({ length: particleCount }, () => ({
+      x: Math.random(),
+      y: Math.random(),
+      vx: (Math.random() - 0.5) * 0.15,
+      vy: (Math.random() - 0.5) * 0.1,
+      size: 0.5 + Math.random() * 1.5,
+      phase: Math.random() * Math.PI * 2,
+      speed: 0.3 + Math.random() * 1.0,
+      twinkle: 0.5 + Math.random() * 2.0,
+    }));
+
     const draw = () => {
       animFrameRef.current = requestAnimationFrame(draw);
-
-      const bufferLength = analyser.frequencyBinCount;
-      const dataArray = new Uint8Array(bufferLength);
-      getFrequencyData(dataArray);
 
       const dpr = window.devicePixelRatio || 1;
       const displayWidth = canvas.clientWidth;
@@ -191,10 +211,7 @@ export default function PlayerBar() {
 
       ctx.clearRect(0, 0, displayWidth, displayHeight);
 
-      const pointCount = 64;
       const accentColor = getComputedStyle(document.documentElement).getPropertyValue("--mq-accent").trim() || "#e03131";
-
-      // Parse accent color
       let r = 224, g = 49, b = 49;
       if (accentColor.startsWith("#") && accentColor.length >= 7) {
         r = parseInt(accentColor.slice(1, 3), 16);
@@ -202,60 +219,65 @@ export default function PlayerBar() {
         b = parseInt(accentColor.slice(5, 7), 16);
       }
 
-      // Build data points
-      const points: { x: number; y: number }[] = [];
-      for (let i = 0; i < pointCount; i++) {
-        const dataIndex = Math.floor(i * bufferLength / pointCount);
-        const raw = dataArray[dataIndex] / 255;
-        const value = Math.pow(raw, 0.7); // compress dynamic range so quiet parts are more visible
-        const x = (i / (pointCount - 1)) * displayWidth;
-        const y = displayHeight - Math.max(2, value * displayHeight * 0.85);
-        points.push({ x, y });
+      const t = performance.now() / 1000;
+
+      // ── Layer 1: Aurora blobs — soft flowing gradient orbs ──
+      for (const blob of blobs) {
+        // Smooth Lissajous-like drift
+        const bx = blob.x + Math.sin(t * blob.speedX + blob.phase) * blob.drift * 0.3;
+        const by = blob.y + Math.cos(t * blob.speedY + blob.phase * 1.3) * blob.drift * 0.2;
+        const px = bx * displayWidth;
+        const py = by * displayHeight;
+        const breathe = 0.8 + 0.2 * Math.sin(t * 0.5 + blob.phase);
+        const radius = blob.radius * breathe;
+
+        const grad = ctx.createRadialGradient(px, py, 0, px, py, radius);
+        grad.addColorStop(0, `rgba(${r},${g},${b},0.08)`);
+        grad.addColorStop(0.4, `rgba(${r},${g},${b},0.04)`);
+        grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+        ctx.beginPath();
+        ctx.arc(px, py, radius, 0, Math.PI * 2);
+        ctx.fillStyle = grad;
+        ctx.fill();
       }
 
-      // Draw gradient fill under the curve
-      const gradient = ctx.createLinearGradient(0, 0, 0, displayHeight);
-      gradient.addColorStop(0, `rgba(${r},${g},${b},0.3)`);
-      gradient.addColorStop(1, `rgba(${r},${g},${b},0.0)`);
+      // ── Layer 2: Twinkling particles ──
+      for (const p of particles) {
+        p.x += p.vx * 0.001;
+        p.y += p.vy * 0.001;
+        if (p.x < 0) p.x = 1;
+        if (p.x > 1) p.x = 0;
+        if (p.y < 0) p.y = 1;
+        if (p.y > 1) p.y = 0;
 
-      ctx.beginPath();
-      ctx.moveTo(points[0].x, displayHeight);
-      ctx.lineTo(points[0].x, points[0].y);
-      for (let i = 1; i < points.length; i++) {
-        const prevPoint = points[i - 1];
-        const currPoint = points[i];
-        const cpx = (prevPoint.x + currPoint.x) / 2;
-        ctx.quadraticCurveTo(prevPoint.x, prevPoint.y, cpx, (prevPoint.y + currPoint.y) / 2);
+        const px = p.x * displayWidth;
+        const py = p.y * displayHeight;
+        const twinkle = 0.3 + 0.7 * Math.pow(Math.sin(t * p.twinkle + p.phase), 2);
+        const alpha = twinkle * 0.4;
+        const size = p.size * twinkle;
+
+        ctx.beginPath();
+        ctx.arc(px, py, size, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
+        ctx.fill();
       }
-      ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
-      ctx.lineTo(displayWidth, displayHeight);
-      ctx.closePath();
-      ctx.fillStyle = gradient;
-      ctx.globalAlpha = 0.6;
-      ctx.fill();
 
-      // Draw the curve line on top
-      ctx.beginPath();
-      ctx.moveTo(points[0].x, points[0].y);
-      for (let i = 1; i < points.length; i++) {
-        const prevPoint = points[i - 1];
-        const currPoint = points[i];
-        const cpx = (prevPoint.x + currPoint.x) / 2;
-        ctx.quadraticCurveTo(prevPoint.x, prevPoint.y, cpx, (prevPoint.y + currPoint.y) / 2);
-      }
-      ctx.strokeStyle = `rgba(${r},${g},${b},0.8)`;
-      ctx.lineWidth = 2;
-      ctx.globalAlpha = 0.6;
-      ctx.stroke();
-
-      ctx.globalAlpha = 1;
+      // ── Layer 3: Horizontal light streak — thin subtle glow line ──
+      const streakY = displayHeight * (0.45 + 0.1 * Math.sin(t * 0.3));
+      const streakAlpha = 0.03 + 0.02 * Math.sin(t * 0.6);
+      const streakGrad = ctx.createLinearGradient(0, streakY - 8, 0, streakY + 8);
+      streakGrad.addColorStop(0, `rgba(${r},${g},${b},0)`);
+      streakGrad.addColorStop(0.5, `rgba(${r},${g},${b},${streakAlpha})`);
+      streakGrad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+      ctx.fillStyle = streakGrad;
+      ctx.fillRect(displayWidth * 0.1, streakY - 8, displayWidth * 0.8, 16);
     };
 
     draw();
     return () => {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
-  }, [currentTrack?.id]); // re-setup when track changes
+  }, [currentTrack?.id]);
 
   // ── Handle track change ─────────────────────────────────
   const prevTrackIdRef = useRef<string | null>(null);

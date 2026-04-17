@@ -96,3 +96,21 @@ Stage Summary:
 - Server running stable on port 3000 (HTTP 307 on /, 200 on /play)
 - All API routes responding correctly
 - Key new features from user's version: PWA support, Outfit font, sleep timer, likes/dislikes, stories system, splash animation, theme switching, username management
+
+---
+Task ID: 2
+Agent: Main
+Task: Replace project with user's latest tar.gz files
+
+Work Log:
+- Received 3 tar.gz files from user: mq-player-source.tar.gz (127 files), mq-player-source-full.tar.gz (+.env), mq-player-project.tar.gz (125 files)
+- source and full are identical except full has .env
+- Replaced all src/, prisma/, public/, config files from user's tar
+- Key differences in user's version: build v44, aurora blob visualization (not polyline/audio-reactive), resetCorsState in audioEngine, more robust upload validation
+- Kept .env (DATABASE_URL) and patched keep-alive for standalone mode
+- Rebuilt successfully with all 22 routes
+
+Stage Summary:
+- Project now fully matches user's local code (build v44)
+- Visualization is aurora blobs (decorative, not audio-reactive) — user's preferred style
+- Server running stable: / 307, /play 200, all API routes working

@@ -2,14 +2,14 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  /* config options here */
-  experimental: {
-    proxyClientMaxBodySize: 209715200, // 200MB upload limit for standalone mode
-  },
   typescript: {
     ignoreBuildErrors: true,
   },
   reactStrictMode: false,
+  experimental: {
+    // Allow uploads up to 200MB (default is 10MB)
+    proxyClientMaxBodySize: 200 * 1024 * 1024,
+  },
   // Prevent aggressive caching that serves stale builds to users
   async headers() {
     return [

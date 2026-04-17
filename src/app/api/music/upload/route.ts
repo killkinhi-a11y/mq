@@ -1,54 +1,64 @@
 import { NextRequest, NextResponse } from "next/server";
-import { writeFile, mkdir } from "fs/promises";
+import { mkdir, writeFile } from "fs/promises";
 import { join } from "path";
 import { existsSync } from "fs";
 
-export const runtime = 'nodejs';
-
-// Allow up to 600 seconds for large file uploads
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+// 10 minutes for large/high-bitrate files
 export const maxDuration = 600;
 
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData();
-    const file = formData.get("file") as File | null;
-    
-    if (!file) {
-      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+    const contentType = request.headers.get("content-type") || "";
+    if (!contentType.includes("multipart/form-data")) {
+      return NextResponse.json({ error: "Invalid content type" }, { status: 400 });
     }
 
-    // Accept any audio/* MIME type or known audio extensions (more permissive for high-bitrate files)
-    const isAudioMime = file.type.startsWith('audio/') || file.type === 'application/octet-stream';
-    const hasAudioExt = !!file.name.match(/\.(mp3|wav|ogg|flac|aac|m4a|webm|opus|wma|aiff|alac)$/i);
-    if (!isAudioMime && !hasAudioExt) {
-      return NextResponse.json({ error: "Invalid file type. Supported: MP3, WAV, OGG, FLAC, AAC, M4A, WebM, OPUS" }, { status: 400 });
-    }
-
-    // Max 200MB for high-bitrate files
-    if (file.size > 200 * 1024 * 1024) {
-      return NextResponse.json({ error: "File too large. Max 200MB" }, { status: 400 });
-    }
-
-    // Use persistent uploads directory (not inside .next/ which gets wiped on rebuild)
     const uploadsDir = "/home/z/my-project/uploads";
     if (!existsSync(uploadsDir)) {
       await mkdir(uploadsDir, { recursive: true });
     }
 
+    // Use the Web API formData() to parse multipart data
+    const formData = await request.formData();
+    const file = formData.get("file") as File | null;
+
+    if (!file) {
+      return NextResponse.json({ error: "No file received" }, { status: 400 });
+    }
+
+    const originalName = file.name || "uploaded.mp3";
+
+    // Validate extension
+    const hasAudioExt = !!originalName.match(/\.(mp3|wav|ogg|flac|aac|m4a|webm|opus|wma|aiff|alac)$/i);
+    if (!hasAudioExt) {
+      return NextResponse.json({ error: "Invalid file type. Only audio files are accepted." }, { status: 400 });
+    }
+
+    // Validate file size (200MB max)
+    if (file.size > 200 * 1024 * 1024) {
+      return NextResponse.json({ error: "File too large. Maximum size is 200MB." }, { status: 400 });
+    }
+
     const uniqueId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const ext = file.name.split(".").pop() || "mp3";
+    const ext = originalName.split(".").pop() || "mp3";
     const fileName = `${uniqueId}.${ext}`;
     const filePath = join(uploadsDir, fileName);
 
-    const bytes = await file.arrayBuffer();
-    await writeFile(filePath, Buffer.from(bytes));
+    // Read file as ArrayBuffer and write to disk
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    await writeFile(filePath, buffer);
 
-    const title = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ");
+    const title = originalName.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ");
+
+    console.log(`[upload] Success: ${fileName} (${(buffer.length / 1024 / 1024).toFixed(1)}MB)`);
 
     return NextResponse.json({
       id: `local_${uniqueId}`,
-      title: title,
-      artist: "Локальный файл",
+      title,
+      artist: "\u041b\u043e\u043a\u0430\u043b\u044c\u043d\u044b\u0439 \u0444\u0430\u0439\u043b",
       album: "",
       cover: "",
       duration: 0,
@@ -59,6 +69,9 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Upload error:", error);
-    return NextResponse.json({ error: "Upload failed: " + (error instanceof Error ? error.message : String(error)) }, { status: 500 });
+    return NextResponse.json(
+      { error: "Upload failed: " + (error instanceof Error ? error.message : String(error)) },
+      { status: 500 }
+    );
   }
 }
