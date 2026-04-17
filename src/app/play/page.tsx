@@ -1,24 +1,27 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAppStore } from "@/store/useAppStore";
 import { themes, applyThemeToDOM } from "@/lib/themes";
-import AuthView from "@/components/mq/AuthView";
-import MainView from "@/components/mq/MainView";
-import SearchView from "@/components/mq/SearchView";
-import MessengerView from "@/components/mq/MessengerView";
-import SettingsView from "@/components/mq/SettingsView";
-import ProfileView from "@/components/mq/ProfileView";
-import PlaylistView from "@/components/mq/PlaylistView";
-import PublicPlaylistsView from "@/components/mq/PublicPlaylistsView";
-import HistoryView from "@/components/mq/HistoryView";
-import StoriesView from "@/components/mq/StoriesView";
-import PlayerBar from "@/components/mq/PlayerBar";
-import FullTrackView from "@/components/mq/FullTrackView";
-import PiPPlayer from "@/components/mq/PiPPlayer";
-import NavBar from "@/components/mq/NavBar";
-import MobileNav from "@/components/mq/MobileNav";
+
+// Dynamic imports with SSR disabled to prevent OOM on containerized environments
+const AuthView = dynamic(() => import("@/components/mq/AuthView"), { ssr: false });
+const MainView = dynamic(() => import("@/components/mq/MainView"), { ssr: false });
+const SearchView = dynamic(() => import("@/components/mq/SearchView"), { ssr: false });
+const MessengerView = dynamic(() => import("@/components/mq/MessengerView"), { ssr: false });
+const SettingsView = dynamic(() => import("@/components/mq/SettingsView"), { ssr: false });
+const ProfileView = dynamic(() => import("@/components/mq/ProfileView"), { ssr: false });
+const PlaylistView = dynamic(() => import("@/components/mq/PlaylistView"), { ssr: false });
+const PublicPlaylistsView = dynamic(() => import("@/components/mq/PublicPlaylistsView"), { ssr: false });
+const HistoryView = dynamic(() => import("@/components/mq/HistoryView"), { ssr: false });
+const StoriesView = dynamic(() => import("@/components/mq/StoriesView"), { ssr: false });
+const PlayerBar = dynamic(() => import("@/components/mq/PlayerBar"), { ssr: false });
+const FullTrackView = dynamic(() => import("@/components/mq/FullTrackView"), { ssr: false });
+const PiPPlayer = dynamic(() => import("@/components/mq/PiPPlayer"), { ssr: false });
+const NavBar = dynamic(() => import("@/components/mq/NavBar"), { ssr: false });
+const MobileNav = dynamic(() => import("@/components/mq/MobileNav"), { ssr: false });
 
 const viewVariants = {
   initial: { opacity: 0, y: 8 },

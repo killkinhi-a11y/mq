@@ -9,18 +9,17 @@ function log(msg) {
 }
 
 function start() {
-  // Check if port 3000 is free
   const net = require('net');
   const tester = net.createServer()
-    .once('error', () => { tester.close(); setTimeout(start, 3000); })
+    .once('error', () => { tester.close(); setTimeout(start, 2000); })
     .once('listening', () => {
       tester.close();
       
-      log('Starting MQ Player server...');
-      const child = spawn('node', ['server.js'], {
+      log('Starting MQ Player production server...');
+      const child = spawn('node', ['server.js', '-H', '0.0.0.0', '-p', '3000'], {
         cwd: '/home/z/my-project/.next/standalone',
         stdio: ['ignore', fs.openSync(logFile, 'a'), fs.openSync(logFile, 'a')],
-        env: { ...process.env, PORT: '3000' }
+        env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=4096' }
       });
       
       child.on('exit', (code, signal) => {
