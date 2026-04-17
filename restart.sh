@@ -15,6 +15,10 @@ force_restart() {
   cp -r "$PROJECT_DIR/public" "$STANDALONE_DIR/public" 2>/dev/null
   cp -r "$PROJECT_DIR/.next/static" "$STANDALONE_DIR/.next/static" 2>/dev/null
 
+  # Ensure uploads directory exists
+  mkdir -p "$STANDALONE_DIR/public/uploads" 2>/dev/null
+  mkdir -p "$PROJECT_DIR/public/uploads" 2>/dev/null
+
   echo "[restart] Starting server..."
   # Use subshell to fully detach from this shell
   ( cd "$STANDALONE_DIR" && PORT=$PORT nohup node server.js </dev/null > "$LOG" 2>&1 & )

@@ -17,13 +17,13 @@ export default function ErrorBoundary({
 
   const handleReset = useCallback(() => {
     // Only clear the app store, NOT all localStorage
-    try { localStorage.removeItem("mq-store-v4"); } catch {}
+    try { localStorage.removeItem("mq-store-v5"); } catch {}
     reset();
   }, [reset]);
 
   const handleFullReset = useCallback(() => {
     // Clear only the app store, then hard reload
-    try { localStorage.removeItem("mq-store-v4"); } catch {}
+    try { localStorage.removeItem("mq-store-v5"); } catch {}
     window.location.href = "/";
   }, []);
 

@@ -13,9 +13,12 @@ export async function GET(request: NextRequest) {
       where.id = { not: excludeId };
     }
     if (q) {
+      const qLower = q.toLowerCase();
       where.OR = [
-        { username: { contains: q, mode: "insensitive" } },
-        { email: { contains: q, mode: "insensitive" } },
+        { username: { contains: q } },
+        { username: { contains: qLower } },
+        { email: { contains: q } },
+        { email: { contains: qLower } },
       ];
     }
 

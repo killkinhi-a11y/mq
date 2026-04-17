@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Play, ListPlus, Heart, ThumbsDown, User, Copy, ListMusic, Plus } from "lucide-react";
+import { Play, ListPlus, Heart, ThumbsDown, User, Copy, ListMusic, Plus, Download } from "lucide-react";
 import { useAppStore } from "@/store/useAppStore";
 import { searchTracks, type Track } from "@/lib/musicApi";
+import { getAudioElement } from "@/lib/audioEngine";
 
 interface ContextMenuProps {
   track: Track;
@@ -168,6 +169,25 @@ export default function ContextMenu({ track, x, y, onClose }: ContextMenuProps) 
     { icon: Heart, label: isLiked ? "Убрать лайк" : "❤ Лайк", action: handleToggleLike, accent: isLiked },
     { icon: ThumbsDown, label: isDisliked ? "Убрать дизлайк" : "👎 Дизлайк", action: handleToggleDislike, accent: isDisliked },
     { icon: Copy, label: "Копировать название", action: handleCopyTitle, accent: false },
+    { icon: Download, label: "Скачать", action: async () => {
+      const audio = getAudioElement();
+      if (audio && audio.src) {
+        try {
+          const res = await fetch(audio.src);
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url; a.download = `${track.artist} - ${track.title}.mp3`;
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        } catch {
+          const a = document.createElement('a');
+          a.href = audio.src; a.download = `${track.artist} - ${track.title}.mp3`;
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        }
+      }
+      onClose();
+    }, accent: false },
   ];
 
   return (

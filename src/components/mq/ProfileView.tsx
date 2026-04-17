@@ -1,16 +1,18 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useAppStore } from "@/store/useAppStore";
 import { motion } from "framer-motion";
 import {
-  User, Camera, Edit3, Check, X, LogOut, Heart, MessageCircle, Music
+  User, Camera, Edit3, Check, X, LogOut, Heart, MessageCircle, Music, Loader2, AlertCircle
 } from "lucide-react";
+
+const USERNAME_RULES = "Буквы, цифры, _ и -. Русские буквы разрешены. 2-20 символов.";
 
 export default function ProfileView() {
   const {
     username, email, avatar, likedTrackIds, dislikedTrackIds,
-    messages, setView, logout,
+    messages, setView, logout, userId,
   } = useAppStore();
   const safeLiked = Array.isArray(likedTrackIds) ? likedTrackIds : [];
   const safeDisliked = Array.isArray(dislikedTrackIds) ? dislikedTrackIds : [];
@@ -19,6 +21,9 @@ export default function ProfileView() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isEditingName, setIsEditingName] = useState(false);
   const [editName, setEditName] = useState(username || "");
+  const [usernameStatus, setUsernameStatus] = useState<{ available: boolean; error?: string } | null>(null);
+  const [isCheckingUsername, setIsCheckingUsername] = useState(false);
+  const [isSavingUsername, setIsSavingUsername] = useState(false);
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -51,14 +56,90 @@ export default function ProfileView() {
     reader.readAsDataURL(file);
   };
 
-  const handleSaveName = () => {
-    useAppStore.setState({ username: editName });
-    setIsEditingName(false);
-  };
+  // Validate username locally
+  const validateUsername = useCallback((name: string): string | null => {
+    if (name.length < 2) return "Минимум 2 символа";
+    if (name.length > 20) return "Максимум 20 символов";
+    if (!/^[a-zA-Z0-9а-яА-Я_-]+$/.test(name)) return "Только буквы, цифры, _ и -";
+    const reserved = ["admin", "administrator", "moderator", "support", "help", "system", "mq", "mqplayer", "root", "null", "undefined"];
+    if (reserved.includes(name.toLowerCase())) return "Это имя зарезервировано";
+    return null;
+  }, []);
+
+  // Debounced username check
+  const checkUsernameTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleEditNameChange = useCallback((value: string) => {
+    setEditName(value);
+    setUsernameStatus(null);
+
+    // Clear previous timeout
+    if (checkUsernameTimeout.current) clearTimeout(checkUsernameTimeout.current);
+
+    const localError = validateUsername(value);
+    if (localError) {
+      setUsernameStatus({ available: false, error: localError });
+      return;
+    }
+
+    // Don't check if same as current username
+    if (value === username) {
+      setUsernameStatus(null);
+      return;
+    }
+
+    // Debounced API check
+    checkUsernameTimeout.current = setTimeout(async () => {
+      setIsCheckingUsername(true);
+      try {
+        const excludeParam = userId ? `&excludeId=${userId}` : "";
+        const res = await fetch(`/api/auth/username-check?username=${encodeURIComponent(value)}${excludeParam}`);
+        const data = await res.json();
+        setUsernameStatus({ available: data.available, error: data.error });
+      } catch {
+        setUsernameStatus(null);
+      } finally {
+        setIsCheckingUsername(false);
+      }
+    }, 500);
+  }, [username, userId, validateUsername]);
+
+  const handleSaveName = useCallback(async () => {
+    if (!editName.trim() || editName === username) {
+      setIsEditingName(false);
+      setUsernameStatus(null);
+      return;
+    }
+
+    const localError = validateUsername(editName);
+    if (localError) return;
+
+    setIsSavingUsername(true);
+    try {
+      const res = await fetch("/api/auth/update-username", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, username: editName }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        useAppStore.setState({ username: editName });
+        setIsEditingName(false);
+        setUsernameStatus(null);
+      } else {
+        setUsernameStatus({ available: false, error: data.error || "Ошибка сохранения" });
+      }
+    } catch {
+      setUsernameStatus({ available: false, error: "Ошибка подключения" });
+    } finally {
+      setIsSavingUsername(false);
+    }
+  }, [editName, username, userId, validateUsername]);
 
   const handleCancelEditName = () => {
     setEditName(username || "");
     setIsEditingName(false);
+    setUsernameStatus(null);
   };
 
   return (
@@ -139,26 +220,52 @@ export default function ProfileView() {
         </div>
 
         {isEditingName ? (
-          <div className="flex items-center gap-2">
-            <div className="flex-1 flex items-center rounded-lg px-3 py-2"
-              style={{ backgroundColor: "var(--mq-input-bg)", border: "1px solid var(--mq-border)" }}>
-              <span style={{ color: "var(--mq-text-muted)" }}>@</span>
-              <input
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") handleSaveName(); if (e.key === "Escape") handleCancelEditName(); }}
-                className="flex-1 bg-transparent outline-none text-sm ml-1"
-                style={{ color: "var(--mq-text)" }}
-                maxLength={20}
-                autoFocus
-              />
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <div className="flex-1 flex items-center rounded-lg px-3 py-2"
+                style={{ backgroundColor: "var(--mq-input-bg)", border: `1px solid ${usernameStatus && !usernameStatus.available ? "rgba(239,68,68,0.5)" : "var(--mq-border)"}` }}>
+                <span style={{ color: "var(--mq-text-muted)" }}>@</span>
+                <input
+                  value={editName}
+                  onChange={(e) => handleEditNameChange(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && usernameStatus?.available !== false) handleSaveName(); if (e.key === "Escape") handleCancelEditName(); }}
+                  className="flex-1 bg-transparent outline-none text-sm ml-1"
+                  style={{ color: "var(--mq-text)" }}
+                  maxLength={20}
+                  autoFocus
+                  autoComplete="off"
+                />
+                {isCheckingUsername && <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: "var(--mq-text-muted)" }} />}
+              </div>
+              <button
+                onClick={handleSaveName}
+                disabled={isSavingUsername || (usernameStatus !== null && !usernameStatus.available)}
+                className="p-2 rounded-lg"
+                style={{ color: (usernameStatus === null || usernameStatus.available) && !isSavingUsername ? "#4ade80" : "var(--mq-text-muted)", opacity: (usernameStatus === null || usernameStatus.available) && !isSavingUsername ? 1 : 0.5 }}
+              >
+                {isSavingUsername ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              </button>
+              <button onClick={handleCancelEditName} className="p-2 rounded-lg" style={{ color: "var(--mq-text-muted)" }}>
+                <X className="w-4 h-4" />
+              </button>
             </div>
-            <button onClick={handleSaveName} className="p-2 rounded-lg" style={{ color: "#4ade80" }}>
-              <Check className="w-4 h-4" />
-            </button>
-            <button onClick={handleCancelEditName} className="p-2 rounded-lg" style={{ color: "var(--mq-text-muted)" }}>
-              <X className="w-4 h-4" />
-            </button>
+            {/* Status message */}
+            {usernameStatus && (
+              <div className="flex items-center gap-1.5">
+                {usernameStatus.available ? (
+                  <Check className="w-3.5 h-3.5" style={{ color: "#4ade80" }} />
+                ) : (
+                  <AlertCircle className="w-3.5 h-3.5" style={{ color: "#ef4444" }} />
+                )}
+                <span className="text-xs" style={{ color: usernameStatus.available ? "#4ade80" : "#ef4444" }}>
+                  {usernameStatus.available ? "Имя доступно" : (usernameStatus.error || "Имя занято")}
+                </span>
+              </div>
+            )}
+            {/* Rules hint */}
+            <p className="text-[10px]" style={{ color: "var(--mq-text-muted)", opacity: 0.7 }}>
+              {USERNAME_RULES}
+            </p>
           </div>
         ) : (
           <p className="text-lg font-semibold" style={{ color: "var(--mq-text)" }}>

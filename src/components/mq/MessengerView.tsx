@@ -7,9 +7,34 @@ import MessageBubble from "./MessageBubble";
 import { Input } from "@/components/ui/input";
 import {
   Lock, Shield, Send, ArrowLeft, Search, ShieldCheck, Phone, Smile, Trash2,
-  Plus, Music2, X, Loader2, Copy, Reply, MoreVertical, UserPlus, UserCheck, Users, AlertCircle
+  Plus, Music2, X, Loader2, Copy, Reply, UserPlus, UserCheck, Users, AlertCircle,
+  Sparkles, Play, Pause, Heart, Eye, ChevronLeft, ChevronRight, Music as MusicIcon, MessageCircle, BookOpen
 } from "lucide-react";
 import { simulateEncrypt, getEncryptionStatus, generateMockFingerprint, simulateDecryptSync } from "@/lib/crypto";
+
+// ── Inline Stories types & data ──
+interface Story {
+  id: string;
+  userId: string;
+  username: string;
+  avatar: string;
+  content: string;
+  contentType: "text" | "image" | "track";
+  createdAt: string;
+  expiresAt: string;
+  viewed: boolean;
+  likes: number;
+  trackData?: { id: string; title: string; artist: string; cover: string; duration: number; streamUrl: string };
+}
+
+const storyGradients = [
+  "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+  "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
+  "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)",
+  "linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)",
+  "linear-gradient(135deg, #fa709a 0%, #fee140 100%)",
+  "linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)",
+];
 
 interface FriendUser {
   id: string;
@@ -31,6 +56,23 @@ interface FetchedUser {
 }
 
 const quickEmojis = ["😀", "😂", "❤️", "🎵", "🔥", "👍", "😎", "🤔", "💪", "🫡", "✨", "🥳"];
+
+// Avatar component with fallback to initials
+function AvatarImg({ src, alt, className }: { src: string; alt: string; className?: string }) {
+  const [errored, setErrored] = useState(false);
+  const initials = alt.split(' ').map(w => w.charAt(0).toUpperCase()).slice(0, 2).join('');
+  if (errored) {
+    const colors = ['#e03131','#0ea5e9','#f43f5e','#f97316','#34d399','#a78bfa','#ff2a6d','#e040fb'];
+    const colorIdx = (alt.charCodeAt(0) + (alt.charCodeAt(1) || 0)) % colors.length;
+    return (
+      <div
+        className={className}
+        style={{ backgroundColor: colors[colorIdx], display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: '0.8em' }}
+      >{initials || '?'}</div>
+    );
+  }
+  return <img src={src} alt={alt} className={className} onError={() => setErrored(true)} />;
+}
 
 function getDateLabel(dateStr: string): string {
   const msgDate = new Date(dateStr);
@@ -61,6 +103,8 @@ export default function MessengerView() {
   const [showMentions, setShowMentions] = useState(false);
   const [contextMenuMsgId, setContextMenuMsgId] = useState<{ id: string; x: number; y: number } | null>(null);
   const [showNewChatDialog, setShowNewChatDialog] = useState(false);
+  const [showStoryCreate, setShowStoryCreate] = useState(false);
+  const [storyText, setStoryText] = useState("");
   const [newChatSearch, setNewChatSearch] = useState("");
   const [mounted, setMounted] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -80,8 +124,90 @@ export default function MessengerView() {
   // Server messages loaded flag
   const [serverMessagesLoaded, setServerMessagesLoaded] = useState<Record<string, boolean>>({});
 
+  // ── Stories state (loaded from API) ──
+  const [stories, setStories] = useState<Story[]>([]);
+  const [viewingStoryIndex, setViewingStoryIndex] = useState<number | null>(null);
+  const [storyProgress, setStoryProgress] = useState(0);
+  const [storyPaused, setStoryPaused] = useState(false);
+  const storyTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Group stories by user
+  const storyGroups = stories.reduce<Record<string, Story[]>>((acc, s) => {
+    if (!acc[s.userId]) acc[s.userId] = [];
+    acc[s.userId].push(s);
+    return acc;
+  }, {});
+  const storyGroupKeys = Object.keys(storyGroups);
+
+  // Auto-advance story
+  useEffect(() => {
+    if (viewingStoryIndex === null) return;
+    setStoryProgress(0);
+    if (storyPaused) { if (storyTimerRef.current) clearInterval(storyTimerRef.current); return; }
+    storyTimerRef.current = setInterval(() => {
+      setStoryProgress(prev => {
+        if (prev >= 100) {
+          clearInterval(storyTimerRef.current!);
+          if (viewingStoryIndex < stories.length - 1) setViewingStoryIndex(prev => prev !== null ? prev + 1 : null);
+          else setViewingStoryIndex(null);
+          return 0;
+        }
+        return prev + 2; // 5 sec per story
+      });
+    }, 100);
+    return () => { if (storyTimerRef.current) clearInterval(storyTimerRef.current); };
+  }, [viewingStoryIndex, storyPaused, stories.length]);
+
+  const closeStoryViewer = useCallback(() => { setViewingStoryIndex(null); setStoryProgress(0); }, []);
+  const viewingStory = viewingStoryIndex !== null ? stories[viewingStoryIndex] : null;
+
   // Prevent hydration mismatch
   useEffect(() => { setMounted(true); }, []);
+
+  // Fetch stories from API on mount
+  useEffect(() => {
+    const fetchStories = async () => {
+      try {
+        const res = await fetch('/api/stories?all=true');
+        if (res.ok) {
+          const data = await res.json();
+          const mapped: Story[] = (data.stories || []).map((s: any) => {
+            let trackData: Story['trackData'] | undefined;
+            let contentType: Story['contentType'] = 'text';
+            const contentStr = typeof s.content === 'string' ? s.content : '';
+            if (s.type === 'music' || s.type === 'track') {
+              contentType = 'track';
+              try {
+                const parsed = JSON.parse(contentStr);
+                if (parsed.track) {
+                  trackData = parsed.track;
+                }
+              } catch {}
+            } else if (s.type === 'image') {
+              contentType = 'image';
+            }
+            return {
+              id: s.id,
+              userId: s.userId,
+              username: s.user?.username || 'User',
+              avatar: "", // Use initials fallback
+              content: contentType === 'track' && trackData ? contentStr : contentStr,
+              contentType,
+              createdAt: s.createdAt,
+              expiresAt: s.expiresAt,
+              viewed: false,
+              likes: s.likes?.length || 0,
+              trackData,
+            };
+          });
+          setStories(mapped);
+        }
+      } catch {
+        // silent
+      }
+    };
+    fetchStories();
+  }, []);
 
   // Fetch friends list
   const fetchFriends = useCallback(async () => {
@@ -139,6 +265,46 @@ export default function MessengerView() {
     loadServerMessages();
   }, [userId, selectedContactId, serverMessagesLoaded, loadMessages]);
 
+  // Poll for new messages every 5 seconds when a chat is open
+  useEffect(() => {
+    if (!userId || !selectedContactId) return;
+    const interval = setInterval(async () => {
+      try {
+        const state = useAppStore.getState();
+        const msgs = state.messages;
+        const lastMsg = msgs
+          .filter((m: any) =>
+            (m.senderId === userId && m.receiverId === selectedContactId) ||
+            (m.senderId === selectedContactId && m.receiverId === userId)
+          )
+          .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+        const res = await fetch(`/api/messages?senderId=${userId}&receiverId=${selectedContactId}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.messages && data.messages.length > 0) {
+            const newMsgs = data.messages
+              .filter((m: any) => !msgs.find((em: any) => em.id === m.id))
+              .map((m: any) => ({
+                id: m.id,
+                content: m.content,
+                senderId: m.senderId,
+                receiverId: m.receiverId,
+                encrypted: m.encrypted,
+                createdAt: m.createdAt,
+                senderName: `@${m.sender?.username || "user"}`,
+              }));
+            if (newMsgs.length > 0) {
+              loadMessages(newMsgs);
+            }
+          }
+        }
+      } catch {
+        // silent
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [userId, selectedContactId, loadMessages]);
+
   // New chat dialog: search users API with debounce
   useEffect(() => {
     let cancelled = false;
@@ -168,7 +334,7 @@ export default function MessengerView() {
       id: f.id,
       name: f.username,
       username: f.username,
-      avatar: `https://picsum.photos/seed/${f.username}/100/100`,
+      avatar: "", // Use initials-based avatar via AvatarImg fallback
       online: false,
       lastSeen: new Date(f.addedAt).toLocaleDateString("ru-RU"),
     }));
@@ -213,7 +379,7 @@ export default function MessengerView() {
         id: u.id,
         name: u.username,
         username: u.username,
-        avatar: `https://picsum.photos/seed/${u.username}/100/100`,
+        avatar: "", // Use initials fallback
         online: false,
         lastSeen: new Date(u.createdAt).toLocaleDateString("ru-RU"),
       }));
@@ -267,59 +433,57 @@ export default function MessengerView() {
     inputRef.current?.focus();
   };
 
+  // ── Unified optimistic message sender ──
+  const sendMessageOptimistic = useCallback(async (content: string, extra?: Record<string, unknown>) => {
+    if (!selectedContactId || !userId) return;
+    const msgId = crypto.randomUUID();
+    const now = new Date().toISOString();
+
+    // Build message object
+    const msg = {
+      id: msgId,
+      content: extra ? JSON.stringify(extra) : content,
+      senderId: userId,
+      receiverId: selectedContactId,
+      encrypted: !extra, // JSON payloads (tracks, gifs) don't encrypt
+      createdAt: now,
+      senderName: `@${username || "user"}`,
+      ...(extra ? { messageType: extra.type } : {}),
+    };
+
+    // Optimistic add
+    addMessage(msg);
+
+    // Persist to server
+    try {
+      await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: msgId,
+          content: msg.content,
+          senderId: userId,
+          receiverId: selectedContactId,
+          encrypted: msg.encrypted,
+          messageType: extra?.type,
+        }),
+      });
+    } catch {
+      // Already added optimistically, server save is best-effort
+    }
+  }, [selectedContactId, userId, username, addMessage]);
+
   const handleSend = async () => {
     if (!inputText.trim() || !selectedContactId || !userId) return;
-    try {
-      const encryptedContent = await simulateEncrypt(inputText.trim());
-      const msg = {
-        id: Date.now().toString(),
-        content: encryptedContent,
-        senderId: userId,
-        receiverId: selectedContactId,
-        encrypted: true,
-        createdAt: new Date().toISOString(),
-        senderName: `@${username || "user"}`,
-      };
-
-      addMessage(msg);
-
-      // Also save to server
-      fetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content: encryptedContent,
-          senderId: userId,
-          receiverId: selectedContactId,
-          encrypted: true,
-        }),
-      }).catch(() => {});
-    } catch (err) {
-      console.error("[MQ Messenger] Failed to send message:", err);
-      const msg = {
-        id: Date.now().toString(),
-        content: inputText.trim(),
-        senderId: userId,
-        receiverId: selectedContactId,
-        encrypted: false,
-        createdAt: new Date().toISOString(),
-        senderName: `@${username || "user"}`,
-      };
-      addMessage(msg);
-
-      fetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content: inputText.trim(),
-          senderId: userId,
-          receiverId: selectedContactId,
-          encrypted: false,
-        }),
-      }).catch(() => {});
-    }
+    const text = inputText.trim();
     setInputText("");
     setShowEmojis(false);
+    try {
+      const encryptedContent = await simulateEncrypt(text);
+      await sendMessageOptimistic(encryptedContent);
+    } catch {
+      await sendMessageOptimistic(text);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -362,18 +526,17 @@ export default function MessengerView() {
 
   const shareTrack = async () => {
     if (!currentTrack || !selectedContactId || !userId) return;
-    const trackText = `🎵 ${currentTrack.title} — ${currentTrack.artist}`;
-    const encryptedContent = await simulateEncrypt(trackText);
-    const msg = {
-      id: Date.now().toString(),
-      content: encryptedContent,
-      senderId: userId,
-      receiverId: selectedContactId,
-      encrypted: true,
-      createdAt: new Date().toISOString(),
-      senderName: `@${username || "user"}`,
-    };
-    addMessage(msg);
+    await sendMessageOptimistic("", {
+      type: "track_share",
+      track: {
+        id: currentTrack.id,
+        title: currentTrack.title,
+        artist: currentTrack.artist,
+        cover: currentTrack.cover || "",
+        duration: currentTrack.duration,
+        streamUrl: currentTrack.audioUrl || "",
+      },
+    });
   };
 
   // Send friend request
@@ -462,7 +625,7 @@ export default function MessengerView() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row" style={{ backgroundColor: "var(--mq-bg)", paddingBottom: "calc(56px + 24px)" }}>
+    <div className="min-h-screen flex flex-col lg:flex-row" style={{ backgroundColor: "var(--mq-bg)", paddingBottom: currentTrack ? "calc(56px + 80px + 24px)" : "calc(56px + 24px)" }}>
       {/* Contacts sidebar */}
       <div
         className={`w-full lg:w-80 flex-shrink-0 ${selectedContactId ? "hidden lg:flex" : "flex"} flex-col`}
@@ -502,6 +665,43 @@ export default function MessengerView() {
             >
               <Plus className="w-4 h-4" />
             </motion.button>
+          </div>
+        </div>
+
+        {/* ── Stories carousel ── */}
+        <div className="flex-shrink-0" style={{ borderBottom: "1px solid var(--mq-border)" }}>
+          <div className="flex gap-3 overflow-x-auto px-4 py-3" style={{ scrollbarWidth: "none" }}>
+            {storyGroupKeys.map((userId) => {
+              const userStories = storyGroups[userId];
+              const firstStory = userStories[0];
+              const hasUnviewed = userStories.some(s => !s.viewed);
+              const firstUnviewedIdx = stories.findIndex(s => s.userId === userId && !s.viewed);
+              const startIdx = firstUnviewedIdx >= 0 ? firstUnviewedIdx : stories.indexOf(firstStory);
+              return (
+                <motion.button
+                  key={userId}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setViewingStoryIndex(startIdx)}
+                  className="flex flex-col items-center gap-1.5 flex-shrink-0 cursor-pointer"
+                >
+                  <div
+                    className="w-14 h-14 rounded-full p-[2px]"
+                    style={{
+                      background: hasUnviewed
+                        ? "linear-gradient(135deg, var(--mq-accent), #f5576c, #fa709a)"
+                        : "var(--mq-border)",
+                    }}
+                  >
+                    <div className="w-full h-full rounded-full overflow-hidden" style={{ border: "2px solid var(--mq-bg)" }}>
+                      <AvatarImg src={firstStory.avatar} alt={firstStory.username} className="w-full h-full object-cover" />
+                    </div>
+                  </div>
+                  <span className="text-[10px] max-w-[56px] truncate" style={{ color: hasUnviewed ? "var(--mq-text)" : "var(--mq-text-muted)" }}>
+                    {firstStory.username}
+                  </span>
+                </motion.button>
+              );
+            })}
           </div>
         </div>
 
@@ -591,7 +791,7 @@ export default function MessengerView() {
                   }}
                 >
                   <div className="relative flex-shrink-0">
-                    <img src={contact.avatar} alt={contact.name} className="w-11 h-11 rounded-full object-cover" />
+                    <AvatarImg src={contact.avatar} alt={contact.name} className="w-11 h-11 rounded-full object-cover" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
@@ -668,7 +868,7 @@ export default function MessengerView() {
                 <ArrowLeft className="w-5 h-5" />
               </button>
               <div className="relative">
-                <img src={selectedContact.avatar} alt={selectedContact.name} className="w-9 h-9 rounded-full object-cover" />
+                <AvatarImg src={selectedContact.avatar} alt={selectedContact.name} className="w-9 h-9 rounded-full object-cover" />
               </div>
               <div className="flex-1">
                 <p className="text-sm font-medium" style={{ color: "var(--mq-text)" }}>
@@ -757,18 +957,6 @@ export default function MessengerView() {
                         onTouchMove={handleTouchMove}
                       >
                         <MessageBubble message={msg} currentUserId={userId || undefined} />
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (longPressTriggered) return;
-                            const rect = (e.target as HTMLElement).getBoundingClientRect();
-                            setContextMenuMsgId({ id: msg.id, x: rect.right - 160, y: rect.top - 120 });
-                          }}
-                          className="absolute top-1 right-1 p-1.5 rounded-full z-10 sm:hidden"
-                          style={{ backgroundColor: "var(--mq-card)", border: "1px solid var(--mq-border)" }}
-                        >
-                          <MoreVertical className="w-3.5 h-3.5" style={{ color: "var(--mq-text-muted)" }} />
-                        </button>
                         {contextMenuMsgId && contextMenuMsgId.id === msg.id && (
                           <div
                             className="absolute top-1 right-1 z-20 rounded-xl py-1 shadow-2xl min-w-[160px]"
@@ -829,18 +1017,26 @@ export default function MessengerView() {
                       Упомянуть пользователя
                     </p>
                   </div>
-                  {filteredMentions.slice(0, 5).map((c) => (
-                    <button
-                      key={c.id}
-                      onClick={() => handleMentionSelect(c)}
-                      className="w-full flex items-center gap-2 px-3 py-2 hover:opacity-80 transition-opacity text-left cursor-pointer"
-                      style={{ color: "var(--mq-text)" }}
-                    >
-                      <img src={c.avatar} alt="" className="w-6 h-6 rounded-full" />
-                      <span className="text-sm font-medium">{c.name}</span>
-                      <span className="text-xs" style={{ color: "var(--mq-text-muted)" }}>@{c.username}</span>
-                    </button>
-                  ))}
+                  {filteredMentions.length > 0 ? (
+                    filteredMentions.slice(0, 5).map((c) => (
+                      <button
+                        key={c.id}
+                        onClick={() => handleMentionSelect(c)}
+                        className="w-full flex items-center gap-2 px-3 py-2 hover:opacity-80 transition-opacity text-left cursor-pointer"
+                        style={{ color: "var(--mq-text)" }}
+                      >
+                        <AvatarImg src={c.avatar} alt={c.name} className="w-6 h-6 rounded-full" />
+                        <span className="text-sm font-medium">{c.name}</span>
+                        <span className="text-xs" style={{ color: "var(--mq-text-muted)" }}>@{c.username}</span>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="px-3 py-2">
+                      <p className="text-xs" style={{ color: "var(--mq-text-muted)" }}>
+                        Пользователь не найден
+                      </p>
+                    </div>
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>
@@ -877,6 +1073,16 @@ export default function MessengerView() {
                 style={{ color: "var(--mq-text-muted)" }}
               >
                 <Smile className="w-5 h-5" />
+              </motion.button>
+
+              <motion.button
+                whileTap={{ scale: 0.9 }}
+                onClick={() => setShowStoryCreate(!showStoryCreate)}
+                className="p-2 rounded-full cursor-pointer flex-shrink-0"
+                style={{ color: showStoryCreate ? "var(--mq-accent)" : "var(--mq-text-muted)" }}
+                title="Добавить историю"
+              >
+                <BookOpen className="w-5 h-5" />
               </motion.button>
 
               <motion.button
@@ -917,6 +1123,101 @@ export default function MessengerView() {
                       {emoji}
                     </motion.button>
                   ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Story creation */}
+            <AnimatePresence>
+              {showStoryCreate && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="p-3 flex-shrink-0"
+                  style={{ borderTop: "1px solid var(--mq-border)", backgroundColor: "var(--mq-player-bg)" }}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <BookOpen className="w-4 h-4" style={{ color: "var(--mq-accent)" }} />
+                    <span className="text-xs font-medium" style={{ color: "var(--mq-text)" }}>Новая история</span>
+                  </div>
+                  <textarea
+                    value={storyText}
+                    onChange={(e) => setStoryText(e.target.value)}
+                    placeholder="Что у вас нового?"
+                    rows={2}
+                    className="w-full rounded-lg px-3 py-2 text-sm resize-none"
+                    style={{
+                      backgroundColor: "var(--mq-input-bg)",
+                      border: "1px solid var(--mq-border)",
+                      color: "var(--mq-text)",
+                    }}
+                  />
+                  <div className="flex gap-2 mt-2">
+                    <motion.button
+                      whileTap={{ scale: 0.95 }}
+                      onClick={async () => {
+                        if (!storyText.trim() || !userId) return;
+                        try {
+                          const res = await fetch('/api/stories', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ userId, type: 'text', content: storyText.trim() }),
+                          });
+                          if (res.ok) {
+                            setShowStoryCreate(false);
+                            setStoryText("");
+                            const notif = document.createElement('div');
+                            notif.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:99999;padding:12px 24px;border-radius:12px;font-size:14px;font-family:system-ui,sans-serif;color:#f5f5f5;background:rgba(30,30,30,0.95);border:1px solid rgba(255,255,255,0.1);backdrop-filter:blur(20px);box-shadow:0 8px 32px rgba(0,0,0,0.3);transition:opacity 0.3s ease;';
+                            notif.textContent = 'История опубликована!';
+                            document.body.appendChild(notif);
+                            setTimeout(() => { notif.style.opacity = '0'; setTimeout(() => notif.remove(), 300); }, 2000);
+                            // Refresh stories
+                            const storiesRes = await fetch('/api/stories?all=true');
+                            if (storiesRes.ok) {
+                              const storiesData = await storiesRes.json();
+                              const mapped: Story[] = (storiesData.stories || []).map((s: any) => {
+                                let trackData: Story['trackData'] | undefined;
+                                let contentType: Story['contentType'] = 'text';
+                                const cStr = typeof s.content === 'string' ? s.content : '';
+                                if (s.type === 'music' || s.type === 'track') {
+                                  contentType = 'track';
+                                  try { const p = JSON.parse(cStr); if (p.track) trackData = p.track; } catch {}
+                                } else if (s.type === 'image') { contentType = 'image'; }
+                                return {
+                                  id: s.id, userId: s.userId,
+                                  username: s.user?.username || 'User',
+                                  avatar: "", // Use initials fallback
+                                  content: cStr, contentType,
+                                  createdAt: s.createdAt, expiresAt: s.expiresAt,
+                                  viewed: false, likes: s.likes?.length || 0, trackData,
+                                };
+                              });
+                              setStories(mapped);
+                            }
+                          }
+                        } catch {
+                          // silent
+                        }
+                      }}
+                      disabled={!storyText.trim()}
+                      className="flex-1 py-2 rounded-lg text-xs font-medium"
+                      style={{
+                        backgroundColor: storyText.trim() ? "var(--mq-accent)" : "var(--mq-card)",
+                        color: storyText.trim() ? "var(--mq-text)" : "var(--mq-text-muted)",
+                        border: "1px solid var(--mq-border)",
+                      }}
+                    >
+                      Опубликовать
+                    </motion.button>
+                    <button
+                      onClick={() => { setShowStoryCreate(false); setStoryText(""); }}
+                      className="px-3 py-2 rounded-lg text-xs"
+                      style={{ color: "var(--mq-text-muted)", border: "1px solid var(--mq-border)" }}
+                    >
+                      Отмена
+                    </button>
+                  </div>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -1051,6 +1352,113 @@ export default function MessengerView() {
                     <p className="text-sm" style={{ color: "var(--mq-text-muted)" }}>Введите имя или @username для поиска</p>
                   </div>
                 )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Full-screen story viewer ── */}
+      <AnimatePresence>
+        {viewingStory && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[300] flex items-center justify-center"
+            style={{ backgroundColor: "rgba(0,0,0,0.95)" }}
+            onClick={() => {
+              if (viewingStoryIndex !== null && viewingStoryIndex < stories.length - 1) setViewingStoryIndex(viewingStoryIndex + 1);
+              else closeStoryViewer();
+            }}
+          >
+            {/* Close */}
+            <motion.button whileTap={{ scale: 0.9 }} onClick={(e) => { e.stopPropagation(); closeStoryViewer(); }}
+              className="absolute top-4 right-4 z-[310] p-2 rounded-full" style={{ backgroundColor: "rgba(255,255,255,0.15)" }}>
+              <X className="w-5 h-5 text-white" />
+            </motion.button>
+
+            {/* Progress bars */}
+            <div className="absolute top-0 left-0 right-0 z-[310] flex gap-1 p-2">
+              {stories.map((_, i) => (
+                <div key={i} className="h-0.5 flex-1 rounded-full overflow-hidden" style={{ backgroundColor: "rgba(255,255,255,0.2)" }}>
+                  <div className="h-full rounded-full transition-all duration-100" style={{
+                    backgroundColor: i === viewingStoryIndex ? "white" : "rgba(255,255,255,0.5)",
+                    width: i < viewingStoryIndex ? "100%" : i === viewingStoryIndex ? `${storyProgress}%` : "0%",
+                  }} />
+                </div>
+              ))}
+            </div>
+
+            {/* Prev/Next */}
+            {viewingStoryIndex !== null && viewingStoryIndex > 0 && (
+              <motion.button whileTap={{ scale: 0.9 }}
+                onClick={(e) => { e.stopPropagation(); setViewingStoryIndex(viewingStoryIndex - 1); setStoryProgress(0); }}
+                className="absolute left-2 z-[310] p-2 rounded-full" style={{ backgroundColor: "rgba(255,255,255,0.1)" }}>
+                <ChevronLeft className="w-5 h-5 text-white" />
+              </motion.button>
+            )}
+            {viewingStoryIndex !== null && viewingStoryIndex < stories.length - 1 && (
+              <motion.button whileTap={{ scale: 0.9 }}
+                onClick={(e) => { e.stopPropagation(); setViewingStoryIndex(viewingStoryIndex + 1); setStoryProgress(0); }}
+                className="absolute right-2 z-[310] p-2 rounded-full" style={{ backgroundColor: "rgba(255,255,255,0.1)" }}>
+                <ChevronRight className="w-5 h-5 text-white" />
+              </motion.button>
+            )}
+
+            {/* Story content */}
+            <motion.div key={viewingStory.id} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+              className="relative w-full max-w-[420px] h-[85vh] rounded-2xl overflow-hidden mx-2"
+              style={{ backgroundColor: "var(--mq-card)" }} onClick={(e) => e.stopPropagation()}>
+              {/* Header */}
+              <div className="absolute top-0 left-0 right-0 z-20 flex items-center gap-3 p-4"
+                style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.6), transparent)" }}>
+                <img src={viewingStory.avatar} alt={viewingStory.username} className="w-9 h-9 rounded-full object-cover" style={{ border: "2px solid white" }} />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-white">{viewingStory.username}</p>
+                  <p className="text-[10px] text-white/60">
+                    {new Date(viewingStory.createdAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
+                  </p>
+                </div>
+                <motion.button whileTap={{ scale: 0.9 }}
+                  onClick={(e) => { e.stopPropagation(); setStoryPaused(!storyPaused); }}
+                  className="p-2 rounded-full" style={{ backgroundColor: "rgba(255,255,255,0.15)" }}>
+                  {storyPaused ? <Play className="w-4 h-4 text-white" /> : <Pause className="w-4 h-4 text-white" />}
+                </motion.button>
+              </div>
+
+              {/* Body */}
+              <div className="w-full h-full flex items-center justify-center"
+                style={viewingStory.contentType === "text" ? { background: storyGradients[viewingStoryIndex % storyGradients.length] } : {}}>
+                {viewingStory.contentType === "text" && (
+                  <div className="p-8 text-center">
+                    <p className="text-xl font-medium text-white leading-relaxed">{viewingStory.content}</p>
+                  </div>
+                )}
+                {viewingStory.contentType === "track" && viewingStory.trackData && (
+                  <div className="p-6 flex flex-col items-center gap-4">
+                    {viewingStory.trackData.cover && (
+                      <img src={viewingStory.trackData.cover} alt="" className="w-48 h-48 rounded-2xl object-cover shadow-2xl" />
+                    )}
+                    <div className="text-center">
+                      <p className="text-lg font-bold text-white">{viewingStory.trackData.title}</p>
+                      <p className="text-sm text-white/70">{viewingStory.trackData.artist}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Bottom actions */}
+              <div className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-between p-4"
+                style={{ background: "linear-gradient(to top, rgba(0,0,0,0.6), transparent)" }}>
+                <div className="flex items-center gap-4">
+                  <motion.button whileTap={{ scale: 1.2 }} className="flex items-center gap-1 cursor-pointer">
+                    <Heart className="w-6 h-6 text-white" />
+                    <span className="text-xs text-white">{viewingStory.likes}</span>
+                  </motion.button>
+                  <MessageCircle className="w-6 h-6 text-white cursor-pointer" />
+                </div>
+                <Eye className="w-4 h-4 text-white/50" />
               </div>
             </motion.div>
           </motion.div>

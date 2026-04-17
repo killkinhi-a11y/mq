@@ -5,10 +5,11 @@ import { useAppStore } from "@/store/useAppStore";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Repeat, Repeat1,
-  Shuffle, Music, Loader2, Moon, Clock, X, PictureInPicture2, ListMusic
+  Shuffle, Music, Loader2, PictureInPicture2, ListMusic,
+  Heart, ThumbsDown, FileText, Download
 } from "lucide-react";
 import { formatDuration } from "@/lib/musicApi";
-import { getAudioElement, initAudioEngine, getAnalyser, resumeAudioContext, getFrequencyData } from "@/lib/audioEngine";
+import { getAudioElement, initAudioEngine, getAnalyser, resumeAudioContext, getFrequencyData, resetCorsState } from "@/lib/audioEngine";
 
 async function resolveSoundCloudStream(scTrackId: number): Promise<{ url: string; isPreview: boolean; duration: number; fullDuration: number } | null> {
   try {
@@ -27,10 +28,10 @@ export default function PlayerBar() {
     currentTrack, isPlaying, volume, progress, duration,
     shuffle, repeat, togglePlay, nextTrack, prevTrack,
     setVolume, setProgress, setDuration, toggleShuffle, toggleRepeat,
-    animationsEnabled, sleepTimerActive, sleepTimerRemaining,
-    startSleepTimer, stopSleepTimer, updateSleepTimer,
+    animationsEnabled,
     setFullTrackViewOpen, setPiPActive, isPiPActive,
-    setPlaybackMode, requestShowSimilar,
+    setPlaybackMode, requestShowSimilar, requestShowLyrics,
+    toggleLike, toggleDislike, likedTrackIds, dislikedTrackIds,
   } = useAppStore();
 
   const progressRef = useRef<HTMLDivElement>(null);
@@ -40,8 +41,15 @@ export default function PlayerBar() {
 
   const [isDragging, setIsDragging] = useState(false);
   const [isLoadingTrack, setIsLoadingTrack] = useState(false);
-  const [showSleepTimer, setShowSleepTimer] = useState(false);
-  const [playError, setPlayError] = useState(false);
+  const [playError, _setPlayError] = useState(false);
+  const playErrorRef = useRef(false);
+  // Wrapper that keeps the ref in sync with local state (needed for cross-handler checks)
+  const setPlayError = useCallback((val: boolean) => {
+    playErrorRef.current = val;
+    _setPlayError(val);
+  }, []);
+  const retryCountRef = useRef(0);
+  const maxRetries = 3;
 
   const nextTrackRef = useRef(nextTrack);
   const setProgressRef = useRef(setProgress);
@@ -64,6 +72,16 @@ export default function PlayerBar() {
 
     const onTimeUpdate = () => {
       if (!isDragging) setProgressRef.current(audio.currentTime);
+      // Update MediaSession position state for lock-screen progress bar
+      if ("mediaSession" in navigator && navigator.mediaSession && audio.duration && isFinite(audio.duration)) {
+        try {
+          navigator.mediaSession.setPositionState({
+            duration: audio.duration,
+            playbackRate: audio.playbackRate,
+            position: audio.currentTime,
+          });
+        } catch {}
+      }
     };
     const onLoaded = () => {
       if (audio.duration && isFinite(audio.duration)) setDurationRef.current(audio.duration);
@@ -80,21 +98,48 @@ export default function PlayerBar() {
       }
     };
     const onError = () => {
-      setPlayError(true);
-      setIsLoadingTrack(false);
+      const audioEl = audioRef.current || getAudioElement();
+      // Retry on error for the same track (max 3 times)
+      if (audioEl.src && retryCountRef.current < maxRetries) {
+        retryCountRef.current++;
+        console.warn(`[Player] Error loading track, retry ${retryCountRef.current}/${maxRetries}`);
+        setTimeout(() => {
+          audioEl.load();
+          audioEl.play().catch(() => {
+            setPlayError(true);
+            setIsLoadingTrack(false);
+          });
+        }, 1000 * retryCountRef.current);
+      } else {
+        setPlayError(true);
+        setIsLoadingTrack(false);
+        // Auto-skip to next track after delay when retries exhausted
+        console.warn(`[Player] Max retries reached, auto-skipping to next track`);
+        setTimeout(() => {
+          if (playErrorRef.current && useAppStore.getState().currentTrack) {
+            nextTrackRef.current();
+          }
+        }, 2000);
+      }
     };
     const onCanPlay = () => {
       setIsLoadingTrack(false);
       setPlayError(false);
       resumeAudioContext();
-      if (isPlayingRef.current) {
-        audio.play().catch(() => useAppStore.getState().togglePlay());
+      // Read store state directly for reliable timing (not the ref which may lag)
+      const st = useAppStore.getState();
+      if (st.isPlaying) {
+        audio.play().catch(() => {});
       }
     };
     const onPlaying = () => {
       setIsLoadingTrack(false);
       setPlayError(false);
       resumeAudioContext();
+      // Always sync isPlaying state — ensure play button shows correct state
+      if (!useAppStore.getState().isPlaying) {
+        useAppStore.getState().togglePlay();
+      }
     };
 
     audio.addEventListener("timeupdate", onTimeUpdate);
@@ -161,7 +206,8 @@ export default function PlayerBar() {
       const points: { x: number; y: number }[] = [];
       for (let i = 0; i < pointCount; i++) {
         const dataIndex = Math.floor(i * bufferLength / pointCount);
-        const value = dataArray[dataIndex] / 255;
+        const raw = dataArray[dataIndex] / 255;
+        const value = Math.pow(raw, 0.7); // compress dynamic range so quiet parts are more visible
         const x = (i / (pointCount - 1)) * displayWidth;
         const y = displayHeight - Math.max(2, value * displayHeight * 0.85);
         points.push({ x, y });
@@ -211,40 +257,6 @@ export default function PlayerBar() {
     };
   }, [currentTrack?.id]); // re-setup when track changes
 
-  // ── Sleep timer ──────────────────────────────────────────
-  useEffect(() => {
-    if (!sleepTimerActive) return;
-    const interval = setInterval(updateSleepTimer, 1000);
-    return () => clearInterval(interval);
-  }, [sleepTimerActive, updateSleepTimer]);
-
-  // ── Play SoundCloud track ───────────────────────────────
-  const playWithSoundCloud = useCallback(async (scTrackId: number, track?: typeof currentTrack) => {
-    const t = track || useAppStore.getState().currentTrack;
-    if (!t) return;
-
-    const audio = audioRef.current || getAudioElement();
-    if (!audio) return;
-
-    setPlaybackMode("soundcloud");
-
-    const stream = await resolveSoundCloudStream(scTrackId);
-    if (!stream || !stream.url) {
-      setPlayError(true);
-      setIsLoadingTrack(false);
-      return;
-    }
-
-    const audioEl = getAudioElement();
-    audioEl.pause();
-    audioEl.src = stream.url;
-    audioEl.load();
-    audioEl.play().catch(() => {
-      setPlayError(true);
-      setIsLoadingTrack(false);
-    });
-  }, [setPlaybackMode]);
-
   // ── Handle track change ─────────────────────────────────
   const prevTrackIdRef = useRef<string | null>(null);
 
@@ -260,35 +272,75 @@ export default function PlayerBar() {
     if (currentTrack.id !== prevTrackIdRef.current) {
       prevTrackIdRef.current = currentTrack.id;
       setProgress(0);
+      retryCountRef.current = 0; // reset retries for new track
     }
 
+    // Cancellation flag — prevents race conditions from rapid track switching
+    let cancelled = false;
+
     const loadTrack = async () => {
-      setIsLoadingTrack(true);
-      setPlayError(false);
+      try {
+        setIsLoadingTrack(true);
+        setPlayError(false);
+        retryCountRef.current = 0;
 
-      const audioEl = getAudioElement();
-      audioEl.pause();
-      audioEl.src = "";
-
-      if (currentTrack.source === "soundcloud" && currentTrack.scTrackId) {
-        await playWithSoundCloud(currentTrack.scTrackId, currentTrack);
-      } else if (currentTrack.audioUrl) {
-        setPlaybackMode("soundcloud");
-        audioEl.src = currentTrack.audioUrl;
+        const audioEl = getAudioElement();
+        audioEl.pause();
+        // Properly clear source to trigger clean load events
+        audioEl.removeAttribute("src");
         audioEl.load();
-        audioEl.play().catch(() => {
+
+        if (cancelled) return;
+
+        if (currentTrack.source === "soundcloud" && currentTrack.scTrackId) {
+          // Inline SoundCloud stream resolution (no separate callback to avoid extra async hop)
+          setPlaybackMode("soundcloud");
+          resetCorsState(); // SC streams have no CORS — mark as blocked
+
+          const stream = await resolveSoundCloudStream(currentTrack.scTrackId);
+          if (cancelled) return;
+
+          if (!stream || !stream.url) {
+            setPlayError(true);
+            setIsLoadingTrack(false);
+            // Auto-skip to next track after delay when stream resolution fails
+            setTimeout(() => nextTrackRef.current(), 1500);
+            return;
+          }
+
+          audioEl.src = stream.url;
+          audioEl.load();
+          audioEl.play().catch(() => {
+            // If play fails due to autoplay policy, onCanPlay/onPlaying will handle it
+          });
+        } else if (currentTrack.audioUrl) {
+          setPlaybackMode("soundcloud");
+          audioEl.crossOrigin = "anonymous";
+          // Reset CORS state to test if this source has real frequency data
+          resetCorsState();
+          audioEl.src = currentTrack.audioUrl;
+          audioEl.load();
+          audioEl.play().catch(() => {
+            // If play fails due to autoplay policy, it's fine - onCanPlay/onPlaying will retry
+          });
+        } else {
           setPlayError(true);
           setIsLoadingTrack(false);
-        });
-      } else {
+          // Auto-skip to next track when track has no playable source
+          setTimeout(() => nextTrackRef.current(), 1500);
+        }
+      } catch (err) {
+        console.error("loadTrack error:", err);
         setPlayError(true);
         setIsLoadingTrack(false);
+        // Auto-skip to next track after error
+        setTimeout(() => nextTrackRef.current(), 2000);
       }
-
-      setIsLoadingTrack(false);
     };
 
     loadTrack();
+
+    return () => { cancelled = true; };
   }, [currentTrack?.id]);
 
   // ── Handle play/pause ───────────────────────────────────
@@ -298,7 +350,17 @@ export default function PlayerBar() {
 
     if (isPlaying) {
       resumeAudioContext();
-      audio.play().catch(() => useAppStore.getState().togglePlay());
+      audio.play().catch((err) => {
+        // Don't flip isPlaying back for non-critical errors (e.g., was already playing)
+        if (err.name !== 'AbortError' && err.name !== 'NotAllowedError') {
+          // For real errors, try once more
+          setTimeout(() => {
+            audio.play().catch(() => useAppStore.getState().togglePlay());
+          }, 500);
+        } else if (err.name === 'NotAllowedError') {
+          useAppStore.getState().togglePlay();
+        }
+      });
     } else {
       audio.pause();
     }
@@ -335,11 +397,25 @@ export default function PlayerBar() {
       useAppStore.getState().nextTrack();
     });
     navigator.mediaSession.setActionHandler("seekto", (details) => {
-      if (details && details.seekTime !== undefined && details.fastSeek !== undefined) {
+      if (details && details.seekTime !== undefined) {
         const audio = getAudioElement();
         audio.currentTime = details.seekTime;
         setProgressRef.current(details.seekTime);
       }
+    });
+    navigator.mediaSession.setActionHandler("seekbackward", (details) => {
+      const audio = getAudioElement();
+      const offset = details?.seekOffset || 10;
+      audio.currentTime = Math.max(0, audio.currentTime - offset);
+    });
+    navigator.mediaSession.setActionHandler("seekforward", (details) => {
+      const audio = getAudioElement();
+      const offset = details?.seekOffset || 10;
+      audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + offset);
+    });
+    navigator.mediaSession.setActionHandler("stop", () => {
+      const st = useAppStore.getState();
+      if (st.isPlaying) st.togglePlay();
     });
 
     return () => {
@@ -348,15 +424,51 @@ export default function PlayerBar() {
       navigator.mediaSession.setActionHandler("previoustrack", null);
       navigator.mediaSession.setActionHandler("nexttrack", null);
       navigator.mediaSession.setActionHandler("seekto", null);
+      navigator.mediaSession.setActionHandler("seekbackward", null);
+      navigator.mediaSession.setActionHandler("seekforward", null);
+      navigator.mediaSession.setActionHandler("stop", null);
     };
   }, [currentTrack?.id]);
 
-  // ── Volume mouse wheel ──────────────────────────────────
-  const handleVolumeWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? -5 : 5;
-    setVolume(Math.round(Math.max(0, Math.min(100, volume + delta))));
-  }, [volume, setVolume]);
+  // ── Update MediaSession playback state & position for notifications ──
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    try {
+      navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
+      if (isPlaying && duration > 0 && "updatePositionState" in navigator.mediaSession) {
+        (navigator.mediaSession as any).updatePositionState({
+          duration: duration,
+          playbackRate: 1,
+          position: Math.min(progress, duration),
+        });
+      }
+    } catch {}
+  }, [isPlaying, progress, duration]);
+
+  // ── Volume mouse wheel — works on the whole player bar (native listener) ──────────────
+  const playerBarRef = useRef<HTMLDivElement>(null);
+  const volumeSectionRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = playerBarRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      // Check if wheel is over volume section or any part of player bar
+      const volEl = volumeSectionRef.current;
+      if (volEl) {
+        const rect = volEl.getBoundingClientRect();
+        // Expand detection area: include the whole right side of player bar
+        const playerRect = el.getBoundingClientRect();
+        if (e.clientX > playerRect.width * 0.5) {
+          e.preventDefault();
+          e.stopPropagation();
+          const delta = e.deltaY > 0 ? -5 : 5;
+          useAppStore.getState().setVolume(Math.round(Math.max(0, Math.min(100, useAppStore.getState().volume + delta))));
+        }
+      }
+    };
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
+  }, []);
 
   // ── Progress drag/seek ──────────────────────────────────
   const seekToPosition = useCallback((clientX: number) => {
@@ -409,9 +521,6 @@ export default function PlayerBar() {
     setVolume(Math.round(Math.max(0, Math.min(100, (x / rect.width) * 100))));
   }, [setVolume]);
 
-  const sleepMin = Math.floor(sleepTimerRemaining / 60);
-  const sleepSec = sleepTimerRemaining % 60;
-
   // ── Render ──────────────────────────────────────────────
   if (!currentTrack) return null;
 
@@ -427,6 +536,7 @@ export default function PlayerBar() {
 
   return (
     <motion.div
+      ref={playerBarRef}
       initial={animationsEnabled ? { y: 100 } : undefined}
       animate={{ y: 0 }}
       transition={{ type: "spring", stiffness: 200, damping: 25 }}
@@ -482,134 +592,146 @@ export default function PlayerBar() {
         </div>
 
         {/* Controls */}
-        <div className="flex items-center gap-2 lg:gap-4 mx-4">
-          <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={toggleShuffle} className="hidden sm:block p-2"
+        <div className="flex items-center gap-0.5 sm:gap-2 lg:gap-4 mx-0.5 sm:mx-2 lg:mx-4">
+          <motion.button whileTap={{ scale: 0.9 }} onClick={toggleShuffle} className="p-1 min-w-[28px] min-h-[28px] sm:min-w-[32px] sm:min-h-[32px] flex items-center justify-center"
             style={{ color: shuffle ? "var(--mq-accent)" : "var(--mq-text-muted)" }}>
-            <Shuffle className="w-4 h-4" />
+            <Shuffle className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
           </motion.button>
           <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={prevTrack}
-            className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center" style={{ color: "var(--mq-text)" }}>
-            <SkipBack className="w-5 h-5" />
+            className="p-1.5 sm:p-2 min-w-[36px] min-h-[36px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center" style={{ color: "var(--mq-text)" }}>
+            <SkipBack className="w-4 h-4 sm:w-5 sm:h-5" />
           </motion.button>
           <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.85 }} onClick={togglePlay}
-            className="w-10 h-10 lg:w-12 lg:h-12 rounded-full flex items-center justify-center"
+            className="w-9 h-9 sm:w-10 sm:h-10 lg:w-12 lg:h-12 rounded-full flex items-center justify-center"
             style={{ backgroundColor: "var(--mq-accent)", color: "var(--mq-text)", boxShadow: isPlaying ? "0 0 20px var(--mq-glow)" : "none" }}>
             <AnimatePresence mode="wait">
               {isLoadingTrack ? (
                 <motion.div key="loading" initial={{ opacity: 0, scale: 0 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0 }}>
-                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
                 </motion.div>
               ) : isPlaying ? (
                 <motion.div key="pause" initial={{ scale: 0, rotate: -90 }} animate={{ scale: 1, rotate: 0 }} exit={{ scale: 0, rotate: 90 }}>
-                  <Pause className="w-5 h-5" />
+                  <Pause className="w-4 h-4 sm:w-5 sm:h-5" />
                 </motion.div>
               ) : (
                 <motion.div key="play" initial={{ scale: 0, rotate: -90 }} animate={{ scale: 1, rotate: 0 }} exit={{ scale: 0, rotate: 90 }}>
-                  <Play className="w-5 h-5 ml-0.5" />
+                  <Play className="w-4 h-4 sm:w-5 sm:h-5 ml-0.5" />
                 </motion.div>
               )}
             </AnimatePresence>
           </motion.button>
           <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={nextTrack}
-            className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center" style={{ color: "var(--mq-text)" }}>
-            <SkipForward className="w-5 h-5" />
+            className="p-1.5 sm:p-2 min-w-[36px] min-h-[36px] sm:min-w-[44px] sm:min-h-[44px] flex items-center justify-center" style={{ color: "var(--mq-text)" }}>
+            <SkipForward className="w-4 h-4 sm:w-5 sm:h-5" />
           </motion.button>
-          <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={toggleRepeat} className="hidden sm:block p-2"
+          <motion.button whileTap={{ scale: 0.9 }} onClick={toggleRepeat} className="p-1 min-w-[28px] min-h-[28px] sm:min-w-[32px] sm:min-h-[32px] flex items-center justify-center"
             style={{ color: repeat !== "off" ? "var(--mq-accent)" : "var(--mq-text-muted)" }}>
-            {repeat === "one" ? <Repeat1 className="w-4 h-4" /> : <Repeat className="w-4 h-4" />}
+            {repeat === "one" ? <Repeat1 className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> : <Repeat className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
           </motion.button>
         </div>
 
-        {/* Volume + extras */}
-        <div className="flex items-center gap-2 flex-1 justify-end min-w-0">
+        {/* Action buttons — desktop only except like */}
+        <div className="flex items-center gap-1 lg:gap-2 flex-1 justify-end min-w-0">
           <span className="text-xs hidden lg:block" style={{ color: "var(--mq-text-muted)" }}>
             {formatDuration(Math.floor(progress))} / {formatDuration(Math.floor(duration))}
           </span>
 
-          {/* Похожие button - visible on desktop */}
-          <motion.button
-            whileTap={{ scale: 0.9 }}
-            onClick={() => requestShowSimilar()}
-            className="p-2 hidden sm:block"
-            style={{ color: "var(--mq-text-muted)" }}
-            title="Похожие треки"
-          >
+          {/* Like button — visible on all screens */}
+          {(() => {
+            const isLiked = (Array.isArray(likedTrackIds) ? likedTrackIds : []).includes(currentTrack.id);
+            return (
+              <motion.button whileTap={{ scale: 0.85 }} onClick={() => toggleLike(currentTrack.id, currentTrack)}
+                className="p-1 flex-shrink-0" style={{ color: isLiked ? "#ef4444" : "var(--mq-text-muted)" }}>
+                <Heart className={`w-4 h-4 ${isLiked ? "fill-current" : ""}`} />
+              </motion.button>
+            );
+          })()}
+
+          {/* Dislike button — desktop only */}
+          {(() => {
+            const isDisliked = (Array.isArray(dislikedTrackIds) ? dislikedTrackIds : []).includes(currentTrack.id);
+            return (
+              <motion.button whileTap={{ scale: 0.85 }} onClick={() => toggleDislike(currentTrack.id)}
+                className="p-1 flex-shrink-0 hidden lg:flex items-center justify-center" style={{ color: isDisliked ? "#ef4444" : "var(--mq-text-muted)" }}>
+                <ThumbsDown className={`w-4 h-4 ${isDisliked ? "fill-current" : ""}`} />
+              </motion.button>
+            );
+          })()}
+
+          {/* Similar tracks — desktop only */}
+          <motion.button whileTap={{ scale: 0.9 }} onClick={() => requestShowSimilar()}
+            className="p-1 flex-shrink-0 items-center justify-center hidden lg:flex"
+            style={{ color: "var(--mq-text-muted)" }} title="Похожие">
             <ListMusic className="w-4 h-4" />
           </motion.button>
 
-          {/* Sleep timer */}
-          <div className="relative">
-            <motion.button whileTap={{ scale: 0.9 }} onClick={() => setShowSleepTimer(!showSleepTimer)}
-              className="relative p-2 hidden sm:block" style={{ color: sleepTimerActive ? "var(--mq-accent)" : "var(--mq-text-muted)" }}>
-              <Moon className="w-4 h-4" />
-              {sleepTimerActive && (
-                <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] rounded-full text-[8px] flex items-center justify-center px-0.5"
-                  style={{ backgroundColor: "var(--mq-accent)", color: "var(--mq-text)" }}>
-                  {sleepMin}:{sleepSec.toString().padStart(2, "0")}
-                </span>
-              )}
-            </motion.button>
-            <AnimatePresence>
-              {showSleepTimer && (
-                <motion.div initial={{ opacity: 0, y: 8, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 8, scale: 0.95 }}
-                  className="absolute bottom-full right-0 mb-2 p-3 rounded-xl w-48 z-50 shadow-lg"
-                  style={{ backgroundColor: "var(--mq-card)", border: "1px solid var(--mq-border)" }}>
-                  {sleepTimerActive ? (
-                    <div className="space-y-2">
-                      <p className="text-xs text-center font-mono" style={{ color: "var(--mq-accent)" }}>
-                        {sleepMin}:{sleepSec.toString().padStart(2, "0")}
-                      </p>
-                      <button onClick={() => { stopSleepTimer(); setShowSleepTimer(false); }}
-                        className="w-full flex items-center justify-center gap-1 py-1.5 rounded-lg text-xs"
-                        style={{ backgroundColor: "rgba(224,49,49,0.15)", color: "#ff6b6b" }}>
-                        <X className="w-3 h-3" /> Отменить
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-2">
-                      {[15, 30, 45, 60].map((m) => (
-                        <button key={m} onClick={() => { startSleepTimer(m); setShowSleepTimer(false); }}
-                          className="flex items-center justify-center gap-1 py-2 rounded-lg text-xs"
-                          style={{ backgroundColor: "var(--mq-input-bg)", border: "1px solid var(--mq-border)", color: "var(--mq-text)" }}>
-                          <Clock className="w-3 h-3" /> {m} мин
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+          {/* Lyrics — desktop only (moved to full player on mobile) */}
+          <motion.button whileTap={{ scale: 0.9 }}
+            onClick={() => { setFullTrackViewOpen(true); requestShowLyrics(); }}
+            className="flex items-center gap-1 px-2 py-1 rounded-lg flex-shrink-0 hidden lg:flex"
+            style={{ color: "var(--mq-text-muted)", backgroundColor: "var(--mq-card)", border: "1px solid var(--mq-border)" }}
+            title="Текст">
+            <FileText className="w-3.5 h-3.5" />
+            <span className="text-[10px] hidden lg:inline">Текст</span>
+          </motion.button>
 
-          {/* PiP */}
+          {/* Download — desktop only */}
+          <motion.button whileTap={{ scale: 0.85 }} onClick={async () => {
+            const audio = audioRef.current || getAudioElement();
+            const t = useAppStore.getState().currentTrack;
+            if (audio && audio.src && t) {
+              try {
+                const res = await fetch(audio.src);
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = `${t.artist} - ${t.title}.mp3`;
+                document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+              } catch {
+                const a = document.createElement('a');
+                a.href = audio.src; a.download = `${t.artist} - ${t.title}.mp3`;
+                document.body.appendChild(a); a.click(); document.body.removeChild(a);
+              }
+            }
+          }}
+            className="p-1 flex-shrink-0 hidden lg:flex items-center justify-center"
+            style={{ color: "var(--mq-text-muted)" }} title="Скачать">
+            <Download className="w-4 h-4" />
+          </motion.button>
+
+          {/* PiP — desktop only */}
           <motion.button whileTap={{ scale: 0.9 }} onClick={() => setPiPActive(!isPiPActive)}
-            className="p-2 hidden sm:block" style={{ color: isPiPActive ? "var(--mq-accent)" : "var(--mq-text-muted)" }}>
+            className="p-1 flex-shrink-0 items-center justify-center hidden lg:flex"
+            style={{ color: isPiPActive ? "var(--mq-accent)" : "var(--mq-text-muted)" }}>
             <PictureInPicture2 className="w-4 h-4" />
           </motion.button>
 
-          <button onClick={() => setVolume(volume > 0 ? 0 : 70)} className="hidden md:block" style={{ color: "var(--mq-text-muted)" }}>
-            {volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-          </button>
-          <div
-            ref={volumeRef}
-            onClick={handleVolumeClick}
-            onWheel={handleVolumeWheel}
-            className="hidden md:block w-24 h-1.5 rounded-full cursor-pointer"
-            style={{ backgroundColor: "var(--mq-border)" }}
-          >
-            <div className="h-full rounded-full" style={{ width: `${volume}%`, backgroundColor: "var(--mq-accent)" }} />
+          {/* Volume — mute button always visible, slider & percentage hidden on mobile */}
+          <div ref={volumeSectionRef} className="flex items-center gap-1 flex-shrink-0">
+            <button onClick={() => setVolume(volume > 0 ? 0 : 70)}
+              className="p-1 flex-shrink-0"
+              style={{ color: "var(--mq-text-muted)" }}>
+              {volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+            </button>
+            <div ref={volumeRef} onClick={handleVolumeClick}
+              className="w-20 h-1.5 rounded-full cursor-pointer flex-shrink-0 hidden md:block"
+              style={{ backgroundColor: "var(--mq-border)" }}>
+              <div className="h-full rounded-full" style={{ width: `${volume}%`, backgroundColor: "var(--mq-accent)" }} />
+            </div>
+            <span className="text-[10px] w-8 flex-shrink-0 text-right hidden md:block"
+              style={{ color: "var(--mq-text-muted)" }}>{Math.round(volume)}%</span>
           </div>
-          <span className="text-[10px] hidden md:block w-8 text-right" style={{ color: "var(--mq-text-muted)" }}>{Math.round(volume)}%</span>
         </div>
       </div>
 
-      {/* Audio visualization waveform */}
+      {/* Audio visualization waveform — at the BOTTOM on PC, hidden on mobile */}
       <canvas
         ref={canvasRef}
-        className="w-full pointer-events-none block"
-        style={{ height: 36, opacity: isPlaying ? 0.8 : 0.15, transition: "opacity 0.3s", minHeight: 36 }}
+        className="w-full pointer-events-none block hidden lg:block"
+        style={{ height: 40, opacity: isPlaying ? 0.6 : 0.1, transition: "opacity 0.3s", minHeight: 40 }}
       />
+
     </motion.div>
   );
 }

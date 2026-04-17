@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useAppStore } from "@/store/useAppStore";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { themes } from "@/lib/themes";
 import {
-  Palette, Type, Sparkles, Minimize2, Volume2, RotateCcw, Check, Moon, Music, Shield, Zap, User
+  Palette, Type, Sparkles, Minimize2, Volume2, RotateCcw, Check, Moon, Music, Shield, Zap, User, ChevronDown, ChevronUp
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
@@ -14,17 +14,27 @@ export default function SettingsView() {
     currentTheme, setTheme, customAccent, setCustomAccent,
     animationsEnabled, setAnimationsEnabled, compactMode, setCompactMode,
     fontSize, setFontSize, volume, setVolume, logout, username, animationsEnabled: anim, setView,
+    liquidGlassMobile, setLiquidGlassMobile,
   } = useAppStore();
 
   const [accentInput, setAccentInput] = useState(customAccent || "");
   const volumeSectionRef = useRef<HTMLDivElement>(null);
+  const [showThemeMenu, setShowThemeMenu] = useState(false);
+  const themeMenuRef = useRef<HTMLDivElement>(null);
 
-  // Mouse wheel volume control on the volume section
-  const handleVolumeWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? -3 : 3;
-    setVolume(Math.round(Math.max(0, Math.min(100, volume + delta))));
-  }, [volume, setVolume]);
+  // Mouse wheel volume control on the volume section — native listener to allow preventDefault
+  useEffect(() => {
+    const el = volumeSectionRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const delta = e.deltaY > 0 ? -3 : 3;
+      useAppStore.getState().setVolume(Math.round(Math.max(0, Math.min(100, useAppStore.getState().volume + delta))));
+    };
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
+  }, []);
 
   const themeList = Object.values(themes);
 
@@ -85,7 +95,7 @@ export default function SettingsView() {
         Настройки профиля
       </motion.button>
 
-      {/* Themes */}
+      {/* Themes — collapsed by default */}
       <motion.div
         initial={anim ? { opacity: 0, y: 20 } : undefined}
         animate={{ opacity: 1, y: 0 }}
@@ -93,48 +103,67 @@ export default function SettingsView() {
         className="rounded-2xl p-4"
         style={{ backgroundColor: "var(--mq-card)", border: "1px solid var(--mq-border)" }}
       >
-        <div className="flex items-center gap-2 mb-4">
+        <button
+          onClick={() => setShowThemeMenu(!showThemeMenu)}
+          className="w-full flex items-center gap-2"
+        >
           <Palette className="w-5 h-5" style={{ color: "var(--mq-accent)" }} />
           <h2 className="font-semibold" style={{ color: "var(--mq-text)" }}>Тема оформления</h2>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {themeList.map((theme) => (
-            <motion.button
-              key={theme.id}
-              whileHover={{ scale: 1.03 }}
-              whileTap={{ scale: 0.97 }}
-              onClick={() => setTheme(theme.id)}
-              className="rounded-xl p-3 text-left relative"
-              style={{
-                backgroundColor: theme.background,
-                border: currentTheme === theme.id && !customAccent
-                  ? `2px solid ${theme.accent}`
-                  : "1px solid var(--mq-border)",
-                boxShadow: currentTheme === theme.id && !customAccent
-                  ? `0 0 12px ${theme.glowColor}`
-                  : "none",
-              }}
+          <span className="text-xs ml-auto" style={{ color: "var(--mq-text-muted)" }}>
+            {themeList.find(t => t.id === currentTheme)?.name || "—"}
+          </span>
+          {showThemeMenu ? (
+            <ChevronUp className="w-4 h-4" style={{ color: "var(--mq-text-muted)" }} />
+          ) : (
+            <ChevronDown className="w-4 h-4" style={{ color: "var(--mq-text-muted)" }} />
+          )}
+        </button>
+
+        <AnimatePresence>
+          {showThemeMenu && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden"
             >
-              <div className="flex items-center gap-2 mb-2">
-                <div
-                  className="w-6 h-6 rounded-full"
-                  style={{ backgroundColor: theme.accent }}
-                />
-                <span className="text-sm font-medium" style={{ color: theme.text }}>
-                  {theme.name}
-                </span>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 mt-4">
+                {themeList.map((theme) => (
+                  <motion.button
+                    key={theme.id}
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => setTheme(theme.id)}
+                    className="rounded-xl p-2.5 text-left relative"
+                    style={{
+                      backgroundColor: theme.background,
+                      border: currentTheme === theme.id && !customAccent
+                        ? `2px solid ${theme.accent}`
+                        : "1px solid var(--mq-border)",
+                      boxShadow: currentTheme === theme.id && !customAccent
+                        ? `0 0 12px ${theme.glowColor}`
+                        : "none",
+                    }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-5 h-5 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: theme.accent }}
+                      />
+                      <span className="text-xs font-medium truncate" style={{ color: theme.text }}>
+                        {theme.name}
+                      </span>
+                    </div>
+                    {currentTheme === theme.id && !customAccent && (
+                      <Check className="absolute top-1.5 right-1.5 w-3.5 h-3.5" style={{ color: theme.accent }} />
+                    )}
+                  </motion.button>
+                ))}
               </div>
-              <div className="flex gap-1">
-                <div className="w-4 h-4 rounded-sm" style={{ backgroundColor: theme.card }} />
-                <div className="w-4 h-4 rounded-sm" style={{ backgroundColor: theme.accent, opacity: 0.5 }} />
-                <div className="w-4 h-4 rounded-sm" style={{ backgroundColor: theme.text, opacity: 0.3 }} />
-              </div>
-              {currentTheme === theme.id && !customAccent && (
-                <Check className="absolute top-2 right-2 w-4 h-4" style={{ color: theme.accent }} />
-              )}
-            </motion.button>
-          ))}
-        </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
 
       {/* Accent color */}
@@ -243,6 +272,18 @@ export default function SettingsView() {
             onCheckedChange={setCompactMode}
           />
         </div>
+
+        {/* Liquid Glass — only on mobile */}
+        <div className="flex items-center justify-between lg:hidden">
+          <div className="flex items-center gap-3">
+            <Sparkles className="w-4 h-4" style={{ color: "var(--mq-text-muted)" }} />
+            <div>
+              <p className="text-sm" style={{ color: "var(--mq-text)" }}>Liquid Glass (мобильная)</p>
+              <p className="text-xs" style={{ color: "var(--mq-text-muted)" }}>Стеклянный эффект на мобильном</p>
+            </div>
+          </div>
+          <Switch checked={liquidGlassMobile} onCheckedChange={setLiquidGlassMobile} />
+        </div>
       </motion.div>
 
       {/* Font size */}
@@ -278,17 +319,15 @@ export default function SettingsView() {
         </div>
       </motion.div>
 
-      {/* Volume */}
+      {/* Volume — hover expand + scroll wheel */}
       <motion.div
-        ref={volumeSectionRef}
         initial={anim ? { opacity: 0, y: 20 } : undefined}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.35 }}
         className="rounded-2xl p-4"
         style={{ backgroundColor: "var(--mq-card)", border: "1px solid var(--mq-border)" }}
-        onWheel={handleVolumeWheel}
       >
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-3">
           <Volume2 className="w-5 h-5" style={{ color: "var(--mq-accent)" }} />
           <h2 className="font-semibold" style={{ color: "var(--mq-text)" }}>Громкость</h2>
           <span className="ml-auto text-sm font-mono" style={{ color: "var(--mq-accent)" }}>
@@ -296,17 +335,17 @@ export default function SettingsView() {
           </span>
         </div>
         <p className="text-xs mb-3" style={{ color: "var(--mq-text-muted)" }}>Колёсико мыши для регулировки</p>
-        <div className="relative w-full">
-          <div className="absolute top-1/2 left-0 h-2 rounded-full -translate-y-1/2" style={{ width: `${volume}%`, backgroundColor: "var(--mq-accent)" }} />
+        <div ref={volumeSectionRef} className="w-full">
           <input
             type="range"
             min="0"
             max="100"
             value={volume}
             onChange={(e) => setVolume(Number(e.target.value))}
-            className="w-full h-2 rounded-full appearance-none cursor-pointer relative z-10"
+            className="w-full h-2 rounded-full appearance-none cursor-pointer"
             style={{
               backgroundColor: "var(--mq-border)",
+              accentColor: "var(--mq-accent)",
             }}
           />
         </div>

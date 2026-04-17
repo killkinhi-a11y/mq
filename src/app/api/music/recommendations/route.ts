@@ -33,15 +33,29 @@ export async function GET(request: NextRequest) {
   const genresParam = searchParams.get("genres");
   const artistsParam = searchParams.get("artists");
   const excludeParam = searchParams.get("excludeIds");
+  const dislikedParam = searchParams.get("dislikedIds");
+  const dislikedArtistsParam = searchParams.get("dislikedArtists");
+  const dislikedGenresParam = searchParams.get("dislikedGenres");
 
   const excludeIds = new Set(
     (excludeParam || "").split(",").filter(Boolean)
+  );
+  const dislikedIds = new Set(
+    (dislikedParam || "").split(",").filter(Boolean)
+  );
+
+  // Artists/genres to avoid from disliked tracks
+  const dislikedArtists = new Set(
+    (dislikedArtistsParam || "").split(",").filter(Boolean).map(a => a.toLowerCase())
+  );
+  const dislikedGenres = new Set(
+    (dislikedGenresParam || "").split(",").filter(Boolean).map(g => g.toLowerCase())
   );
 
   const genres: string[] = genresParam ? genresParam.split(",").filter(Boolean) : [];
   const artists: string[] = artistsParam ? artistsParam.split(",").filter(Boolean).slice(0, 3) : [];
 
-  const tasteKey = `${genre}:${genresParam || ""}:${artistsParam || ""}`;
+  const tasteKey = `${genre}:${genresParam || ""}:${artistsParam || ""}:${dislikedParam || ""}`;
   const cacheKey = `rec:smart:${tasteKey}`;
   const cached = getFromCache(cacheKey);
   if (cached) return NextResponse.json(cached);
@@ -89,6 +103,12 @@ export async function GET(request: NextRequest) {
       for (const track of result.value) {
         if (excludeIds.has(track.id)) continue;
         if (seenIds.has(track.scTrackId)) continue;
+        // Filter out tracks from disliked artists
+        if (dislikedArtists.size > 0 && track.artist && dislikedArtists.has(track.artist.toLowerCase())) continue;
+        // Filter out tracks from disliked genres
+        if (dislikedGenres.size > 0 && track.genre && dislikedGenres.has(track.genre.toLowerCase())) continue;
+        // Also filter disliked tracks by id
+        if (dislikedIds.has(track.id)) continue;
         // Filter out tracks without artwork for better quality
         if (!track.cover) continue;
         // Skip very short tracks

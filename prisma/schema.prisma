@@ -20,6 +20,9 @@ model User {
   receivedMessages Message[] @relation("ReceivedMessages")
   sentFriendRequests     Friend[] @relation("SentFriendRequests")
   receivedFriendRequests Friend[] @relation("ReceivedFriendRequests")
+  stories                Story[]  @relation("UserStories")
+  storyLikes             StoryLike[] @relation("UserStoryLikes")
+  storyComments          StoryComment[] @relation("UserStoryComments")
 }
 
 model Message {
@@ -44,4 +47,39 @@ model Friend {
   addressee  User     @relation("ReceivedFriendRequests", fields: [addresseeId], references: [id])
 
   @@unique([requesterId, addresseeId])
+}
+
+model Story {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String   @default("text") // "text", "image", "music"
+  content   String   // text content or image URL
+  bgColor   String   @default("#1a1a2e")
+  textColor String   @default("#ffffff")
+  createdAt DateTime @default(now())
+  expiresAt DateTime // stories expire after 24h
+  user      User     @relation("UserStories", fields: [userId], references: [id])
+  likes     StoryLike[]
+  comments  StoryComment[]
+}
+
+model StoryLike {
+  id      String @id @default(cuid())
+  storyId String
+  userId  String
+  createdAt DateTime @default(now())
+  story   Story @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  user    User  @relation("UserStoryLikes", fields: [userId], references: [id])
+
+  @@unique([storyId, userId])
+}
+
+model StoryComment {
+  id        String   @id @default(cuid())
+  storyId   String
+  userId    String
+  content   String
+  createdAt DateTime @default(now())
+  story     Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  user      User     @relation("UserStoryComments", fields: [userId], references: [id])
 }

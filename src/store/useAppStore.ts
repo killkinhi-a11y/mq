@@ -1,11 +1,12 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { type Track, type Message as ChatMessage } from "@/lib/musicApi";
+import { themes, applyThemeToDOM } from "@/lib/themes";
 
 // ── Storage versioning ──
 // Bump this number to force a fresh store for all users with old data.
-const STORE_VERSION = 4;
-const STORAGE_KEY = "mq-store-v4";
+const STORE_VERSION = 5;
+const STORAGE_KEY = "mq-store-v5";
 
 // Nuke stale data BEFORE Zustand tries to hydrate.
 // This runs at module-import time, so there is no React error boundary to catch failures.
@@ -26,7 +27,7 @@ if (typeof window !== "undefined") {
   }
 }
 
-export type ViewType = "auth" | "main" | "search" | "messenger" | "settings" | "profile" | "playlists" | "history";
+export type ViewType = "auth" | "main" | "search" | "messenger" | "settings" | "profile" | "playlists" | "history" | "stories";
 export type AuthStep = "login" | "register" | "confirm" | "confirmed";
 
 export interface UserPlaylist {
@@ -63,6 +64,7 @@ interface AppState {
   animationsEnabled: boolean;
   compactMode: boolean;
   fontSize: number;
+  liquidGlassEnabled: boolean;
 
   // Player
   currentTrack: Track | null;
@@ -108,10 +110,14 @@ interface AppState {
   similarTracks: Track[];
   similarTracksLoading: boolean;
   showSimilarRequested: boolean;
+  showLyricsRequested: boolean;
 
   // Playlists
   playlists: UserPlaylist[];
   selectedPlaylistId: string | null;
+
+  // Liquid Glass Mobile
+  liquidGlassMobile: boolean;
 
   // History
   history: HistoryEntry[];
@@ -128,6 +134,7 @@ interface AppState {
   setAnimationsEnabled: (enabled: boolean) => void;
   setCompactMode: (compact: boolean) => void;
   setFontSize: (size: number) => void;
+  setLiquidGlassEnabled: (enabled: boolean) => void;
 
   // Player actions
   playTrack: (track: Track, queue?: Track[]) => void;
@@ -176,6 +183,8 @@ interface AppState {
   setSimilarTracksLoading: (loading: boolean) => void;
   requestShowSimilar: () => void;
   clearShowSimilarRequest: () => void;
+  requestShowLyrics: () => void;
+  clearShowLyricsRequest: () => void;
 
   // Playlist actions
   createPlaylist: (name: string, description?: string) => void;
@@ -184,6 +193,9 @@ interface AppState {
   addToPlaylist: (playlistId: string, track: Track) => void;
   removeFromPlaylist: (playlistId: string, trackId: string) => void;
   setSelectedPlaylistId: (id: string | null) => void;
+
+  // Liquid Glass Mobile action
+  setLiquidGlassMobile: (enabled: boolean) => void;
 
   // History actions
   addToHistory: (track: Track) => void;
@@ -206,6 +218,7 @@ const initialState = {
   animationsEnabled: true,
   compactMode: false,
   fontSize: 16,
+  liquidGlassEnabled: false,
   currentTrack: null as Track | null,
   queue: [] as Track[],
   queueIndex: 0,
@@ -235,8 +248,10 @@ const initialState = {
   similarTracks: [] as Track[],
   similarTracksLoading: false,
   showSimilarRequested: false,
+  showLyricsRequested: false,
   playlists: [] as UserPlaylist[],
   selectedPlaylistId: null as string | null,
+  liquidGlassMobile: false as boolean,
   history: [] as HistoryEntry[],
 };
 
@@ -245,8 +260,22 @@ export const useAppStore = create<AppState>()(
     (set, get) => ({
       ...initialState,
 
-      setAuth: (userId, username, email) =>
-        set({ isAuthenticated: true, userId, username, email, currentView: "main" }),
+      setAuth: (userId, username, email) => {
+        set({ isAuthenticated: true, userId, username, email, currentView: "main" });
+        // Load saved theme from account
+        fetch(`/api/user/theme?userId=${userId}`)
+          .then(r => r.json())
+          .then(data => {
+            if (data.theme && data.theme !== "default") {
+              const themeConfig = themes[data.theme];
+              if (themeConfig) {
+                applyThemeToDOM(themeConfig, data.accent || undefined);
+                set({ currentTheme: data.theme, customAccent: data.accent || null });
+              }
+            }
+          })
+          .catch(() => {});
+      },
 
       logout: () =>
         set({ ...initialState }),
@@ -255,15 +284,39 @@ export const useAppStore = create<AppState>()(
 
       setAuthStep: (step) => set({ authStep: step }),
 
-      setTheme: (theme) => set({ currentTheme: theme }),
+      setTheme: (theme) => {
+        set({ currentTheme: theme });
+        // Save theme to account if logged in
+        const { userId } = get();
+        if (userId) {
+          fetch('/api/user/theme', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, theme }),
+          }).catch(() => {});
+        }
+      },
 
-      setCustomAccent: (color) => set({ customAccent: color }),
+      setCustomAccent: (color) => {
+        set({ customAccent: color });
+        // Save accent to account if logged in
+        const { userId } = get();
+        if (userId && color) {
+          fetch('/api/user/theme', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, accent: color }),
+          }).catch(() => {});
+        }
+      },
 
       setAnimationsEnabled: (enabled) => set({ animationsEnabled: enabled }),
 
       setCompactMode: (compact) => set({ compactMode: compact }),
 
       setFontSize: (size) => set({ fontSize: size }),
+
+      setLiquidGlassEnabled: (enabled) => set({ liquidGlassEnabled: enabled }),
 
       playTrack: (track, queue) => {
         const state = get();
@@ -378,7 +431,19 @@ export const useAppStore = create<AppState>()(
       },
 
       addMessage: (message) =>
-        set((s) => ({ messages: [...s.messages, message] })),
+        set((s) => {
+          // Dedup: skip messages with same content+sender+receiver within 15 seconds
+          const now = Date.now();
+          const isDuplicate = s.messages.some(
+            (m) =>
+              m.content === message.content &&
+              m.senderId === message.senderId &&
+              m.receiverId === message.receiverId &&
+              Math.abs(new Date(m.createdAt).getTime() - now) < 15000
+          );
+          if (isDuplicate) return s;
+          return { messages: [...s.messages, message] };
+        }),
 
       setSelectedContact: (contactId) => set({ selectedContactId: contactId, unreadCounts: { ...get().unreadCounts, [contactId]: 0 } }),
 
@@ -451,8 +516,10 @@ export const useAppStore = create<AppState>()(
 
       setSimilarTracks: (tracks) => set({ similarTracks: tracks }),
       setSimilarTracksLoading: (loading) => set({ similarTracksLoading: loading }),
-      requestShowSimilar: () => set({ showSimilarRequested: true, isFullTrackViewOpen: true }),
+      requestShowSimilar: () => set({ showSimilarRequested: true, isFullTrackViewOpen: true, showLyricsRequested: false }),
       clearShowSimilarRequest: () => set({ showSimilarRequested: false }),
+      requestShowLyrics: () => set({ showLyricsRequested: true, isFullTrackViewOpen: true, showSimilarRequested: false }),
+      clearShowLyricsRequest: () => set({ showLyricsRequested: false }),
 
       // ── Playlist actions ──
       createPlaylist: (name, description = "") => {
@@ -512,6 +579,9 @@ export const useAppStore = create<AppState>()(
 
       setSelectedPlaylistId: (id) => set({ selectedPlaylistId: id }),
 
+      // ── Liquid Glass Mobile ──
+      setLiquidGlassMobile: (enabled) => set({ liquidGlassMobile: enabled }),
+
       // ── History actions ──
       addToHistory: (track) => {
         set((s) => {
@@ -552,6 +622,7 @@ export const useAppStore = create<AppState>()(
         animationsEnabled: state.animationsEnabled,
         compactMode: state.compactMode,
         fontSize: state.fontSize,
+        liquidGlassEnabled: state.liquidGlassEnabled,
         volume: state.volume,
         isAuthenticated: state.isAuthenticated,
         userId: state.userId,
@@ -567,6 +638,7 @@ export const useAppStore = create<AppState>()(
         likedTracksData: state.likedTracksData,
         playlists: state.playlists,
         history: state.history,
+        liquidGlassMobile: state.liquidGlassMobile,
       }),
       migrate: (persisted: unknown, version: number) => {
         // On any version mismatch, start completely fresh

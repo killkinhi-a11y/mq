@@ -7,19 +7,60 @@ import { genresList, type Track } from "@/lib/musicApi";
 import TrackCard from "./TrackCard";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, X, SlidersHorizontal, Music, Play } from "lucide-react";
+import { Search, X, SlidersHorizontal, Music, Play, Upload, Clock, Trash2, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+
+const SEARCH_HISTORY_KEY = "mq-search-history";
+const MAX_HISTORY = 15;
+
+function getSearchHistory(): string[] {
+  try {
+    const raw = localStorage.getItem(SEARCH_HISTORY_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+function saveSearchHistory(items: string[]) {
+  try { localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(items.slice(0, MAX_HISTORY))); } catch {}
+}
 
 export default function SearchView() {
-  const { searchQuery, setSearchQuery, selectedGenre, setSelectedGenre, animationsEnabled, playTrack } = useAppStore();
+  const { searchQuery, setSearchQuery, selectedGenre, setSelectedGenre, animationsEnabled, playTrack, toggleLike, currentView } = useAppStore();
   const [showFilters, setShowFilters] = useState(false);
   const [searchResults, setSearchResults] = useState<Track[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{
+    current: number;
+    total: number;
+    fileName: string;
+    status: "uploading" | "done" | "error";
+    successCount: number;
+    failCount: number;
+    fileProgress: number;
+  } | null>(null);
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const abortRef = useRef<AbortController | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Genre filter search
   const [genreTracks, setGenreTracks] = useState<Track[]>([]);
   const [isGenreLoading, setIsGenreLoading] = useState(false);
+
+  // Load search history on mount
+  useEffect(() => {
+    setSearchHistory(getSearchHistory());
+  }, []);
+
+  // Auto-clear search when leaving search view
+  useEffect(() => {
+    if (currentView !== "search") {
+      setSearchQuery("");
+      setSearchResults([]);
+      setHasSearched(false);
+    }
+  }, [currentView, setSearchQuery]);
 
   // Debounced search
   useEffect(() => {
@@ -47,6 +88,13 @@ export default function SearchView() {
         if (!controller.signal.aborted) {
           const data = await res.json();
           setSearchResults(data.tracks || []);
+          // Save to history
+          const query = searchQuery.trim();
+          if (query) {
+            const updated = [query, ...getSearchHistory().filter(h => h.toLowerCase() !== query.toLowerCase())].slice(0, MAX_HISTORY);
+            saveSearchHistory(updated);
+            setSearchHistory(updated);
+          }
         }
       } catch {
         if (!controller.signal.aborted) {
@@ -107,6 +155,18 @@ export default function SearchView() {
     setHasSearched(false);
   }, [setSearchQuery]);
 
+  const handleHistoryClick = useCallback((query: string) => {
+    setSearchQuery(query);
+    if (searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [setSearchQuery]);
+
+  const handleClearHistory = useCallback(() => {
+    saveSearchHistory([]);
+    setSearchHistory([]);
+  }, []);
+
   const handlePlayAll = useCallback(() => {
     const tracksToPlay = searchResults.length > 0 ? searchResults : genreTracks;
     if (tracksToPlay.length > 0) {
@@ -114,12 +174,178 @@ export default function SearchView() {
     }
   }, [searchResults, genreTracks, playTrack]);
 
+  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setIsUploading(true);
+    let successCount = 0;
+    let failCount = 0;
+    const total = files.length;
+    const fileArray = Array.from(files);
+    let idx = 0;
+
+    const uploadNext = () => {
+      if (idx >= fileArray.length) {
+        const finalStatus = failCount === 0 ? "done" : (successCount > 0 ? "done" : "error");
+        setUploadProgress({
+          current: total,
+          total,
+          fileName: fileArray[fileArray.length - 1].name,
+          status: finalStatus,
+          successCount,
+          failCount,
+          fileProgress: 100,
+        });
+        setIsUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        setTimeout(() => setUploadProgress(null), 4000);
+        return;
+      }
+
+      const file = fileArray[idx];
+      setUploadProgress({
+        current: idx + 1,
+        total,
+        fileName: file.name,
+        status: "uploading",
+        successCount,
+        failCount,
+        fileProgress: 0,
+      });
+
+      const formData = new FormData();
+      formData.append("file", file);
+      const xhr = new XMLHttpRequest();
+
+      xhr.upload.addEventListener("progress", (e) => {
+        if (e.lengthComputable) {
+          setUploadProgress(prev => prev ? { ...prev, fileProgress: Math.round((e.loaded / e.total) * 100) } : null);
+        }
+      });
+
+      xhr.addEventListener("load", () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const track: Track = JSON.parse(xhr.responseText);
+            setSearchResults(prev => [track, ...prev]);
+            setHasSearched(true);
+            toggleLike(track.id, track);
+            successCount++;
+          } catch { failCount++; }
+        } else { failCount++; }
+        idx++;
+        uploadNext();
+      });
+
+      xhr.addEventListener("error", () => {
+        failCount++;
+        idx++;
+        uploadNext();
+      });
+
+      xhr.addEventListener("timeout", () => {
+        failCount++;
+        idx++;
+        uploadNext();
+      });
+
+      xhr.open("POST", "/api/music/upload");
+      xhr.timeout = 600000; // 10 minutes for large/high-bitrate files
+      xhr.send(formData);
+    };
+
+    uploadNext();
+  }, [toggleLike]);
+
   const activeTracks = selectedGenre ? genreTracks : searchResults;
   const activeLoading = selectedGenre ? isGenreLoading : isLoading;
   const activeHasSearched = selectedGenre || hasSearched;
 
   return (
-    <div className="p-4 lg:p-6 pb-40 lg:pb-28 space-y-4">
+    <div className="p-4 lg:p-6 pb-40 lg:pb-28 space-y-4 relative">
+      {/* Upload progress floating notification */}
+      {uploadProgress && (
+        <motion.div
+          initial={{ opacity: 0, y: -20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -10, scale: 0.95 }}
+          className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] w-[90vw] max-w-md"
+        >
+          <div
+            className="rounded-2xl p-4 shadow-2xl border"
+            style={{
+              backgroundColor: "rgba(24, 24, 27, 0.97)",
+              backdropFilter: "blur(24px)",
+              border: "1px solid rgba(255, 255, 255, 0.08)",
+              color: "var(--mq-text, #f5f5f5)",
+            }}
+          >
+            {/* Header row */}
+            <div className="flex items-center gap-3 mb-2">
+              {uploadProgress.status === "uploading" && (
+                <Loader2 className="w-5 h-5 flex-shrink-0 animate-spin" style={{ color: "var(--mq-accent, #a78bfa)" }} />
+              )}
+              {uploadProgress.status === "done" && (
+                <CheckCircle2 className="w-5 h-5 flex-shrink-0" style={{ color: "#4ade80" }} />
+              )}
+              {uploadProgress.status === "error" && uploadProgress.failCount > 0 && (
+                <AlertCircle className="w-5 h-5 flex-shrink-0" style={{ color: "#fb923c" }} />
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold truncate">
+                  {uploadProgress.status === "uploading"
+                    ? `Загрузка ${uploadProgress.current}/${uploadProgress.total}…`
+                    : uploadProgress.failCount === 0
+                      ? `${uploadProgress.successCount} ${uploadProgress.successCount === 1 ? "трек загружен" : "треков загружено"}`
+                      : `Загружено: ${uploadProgress.successCount}, Ошибок: ${uploadProgress.failCount}`
+                  }
+                </p>
+                <p className="text-xs truncate" style={{ color: "var(--mq-text-muted, #a1a1aa)" }}>
+                  {uploadProgress.fileName}
+                </p>
+              </div>
+            </div>
+
+            {/* Overall progress + per-file progress */}
+            {uploadProgress.status === "uploading" && (
+              <div className="space-y-1.5">
+                <div className="w-full rounded-full h-1.5 overflow-hidden" style={{ backgroundColor: "rgba(255,255,255,0.08)" }}>
+                  <div
+                    className="h-full rounded-full transition-all duration-200"
+                    style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%`, backgroundColor: "var(--mq-accent, #a78bfa)" }}
+                  />
+                </div>
+                <div className="w-full rounded-full h-1 overflow-hidden" style={{ backgroundColor: "rgba(255,255,255,0.05)" }}>
+                  <div
+                    className="h-full rounded-full transition-all duration-150"
+                    style={{ width: `${uploadProgress.fileProgress || 0}%`, backgroundColor: "var(--mq-accent, #a78bfa)" }}
+                  />
+                </div>
+                <p className="text-[10px]" style={{ color: "var(--mq-text-muted, #a1a1aa)" }}>
+                  {uploadProgress.fileProgress || 0}% файла
+                </p>
+              </div>
+            )}
+
+            {/* Success/error bar */}
+            {uploadProgress.status !== "uploading" && (
+              <div className="flex gap-3 text-xs" style={{ color: "var(--mq-text-muted, #a1a1aa)" }}>
+                <span className="flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" style={{ color: "#4ade80" }} />
+                  {uploadProgress.successCount}
+                </span>
+                {uploadProgress.failCount > 0 && (
+                  <span className="flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" style={{ color: "#fb923c" }} />
+                    {uploadProgress.failCount}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </motion.div>
+      )}
+
       {/* Search bar */}
       <motion.div
         initial={animationsEnabled ? { opacity: 0, y: -10 } : undefined}
@@ -129,6 +355,7 @@ export default function SearchView() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "var(--mq-text-muted)" }} />
           <Input
+            ref={searchInputRef}
             placeholder="Искать треки, артистов, альбомы..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -161,6 +388,27 @@ export default function SearchView() {
         >
           <SlidersHorizontal className="w-4 h-4" />
         </motion.button>
+        <motion.button
+          whileTap={{ scale: 0.95 }}
+          onClick={() => fileInputRef.current?.click()}
+          className="p-3 rounded-xl min-w-[44px] min-h-[44px] flex items-center justify-center"
+          style={{
+            backgroundColor: isUploading ? "var(--mq-accent)" : "var(--mq-card)",
+            border: "1px solid var(--mq-border)",
+            color: isUploading ? "var(--mq-text)" : "var(--mq-text-muted)",
+          }}
+          title="Загрузить свои треки"
+        >
+          <Upload className={`w-4 h-4 ${isUploading ? "animate-pulse" : ""}`} />
+        </motion.button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="audio/*"
+          multiple
+          onChange={handleFileUpload}
+          className="hidden"
+        />
       </motion.div>
 
       {/* Genre filters */}
@@ -197,6 +445,38 @@ export default function SearchView() {
             </button>
           ))}
         </motion.div>
+      )}
+
+      {/* Search history — shown when no query and no results */}
+      {!searchQuery.trim() && !selectedGenre && searchHistory.length > 0 && !hasSearched && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--mq-text-muted)" }}>
+              <Clock className="w-4 h-4" /> Недавние запросы
+            </h3>
+            <button onClick={handleClearHistory} className="p-1 rounded-lg transition-colors"
+              style={{ color: "var(--mq-text-muted)" }}>
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {searchHistory.map((query) => (
+              <motion.button
+                key={query}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => handleHistoryClick(query)}
+                className="px-3 py-1.5 rounded-full text-xs font-medium"
+                style={{
+                  backgroundColor: "var(--mq-card)",
+                  color: "var(--mq-text)",
+                  border: "1px solid var(--mq-border)",
+                }}
+              >
+                {query}
+              </motion.button>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Results info */}
@@ -255,7 +535,7 @@ export default function SearchView() {
           <h2 className="text-lg font-bold mb-3" style={{ color: "var(--mq-text)" }}>
             {selectedGenre ? `Жанр: ${selectedGenre}` : "Треки"}
           </h2>
-          <div className="space-y-2">
+          <div className="space-y-1.5 sm:space-y-2">
             {activeTracks.map((track, i) => (
               <TrackCard key={track.id} track={track} index={i} queue={activeTracks} />
             ))}
@@ -264,7 +544,7 @@ export default function SearchView() {
       )}
 
       {/* Default state: no search yet */}
-      {!activeHasSearched && !activeLoading && (
+      {!activeHasSearched && !activeLoading && searchHistory.length === 0 && (
         <div className="text-center py-12">
           <Music className="w-12 h-12 mx-auto mb-3" style={{ color: "var(--mq-text-muted)", opacity: 0.3 }} />
           <p className="text-sm" style={{ color: "var(--mq-text-muted)" }}>

@@ -1,13 +1,14 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useAppStore, type UserPlaylist } from "@/store/useAppStore";
 import { motion, AnimatePresence } from "framer-motion";
 import { type Track } from "@/lib/musicApi";
 import {
   Plus, Trash2, Play, Music, ListMusic, ChevronRight,
-  Edit3, X, Check, Disc3, Clock, Heart
+  Edit3, X, Check, Disc3, Clock, Heart, Upload, Download, Link, Loader2, AlertCircle
 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import TrackCard from "./TrackCard";
 
 export default function PlaylistView() {
@@ -15,6 +16,7 @@ export default function PlaylistView() {
     playlists, selectedPlaylistId, setSelectedPlaylistId,
     createPlaylist, deletePlaylist, renamePlaylist,
     removeFromPlaylist, animationsEnabled, playTrack, likedTrackIds,
+    addToPlaylist,
   } = useAppStore();
 
   const [showCreate, setShowCreate] = useState(false);
@@ -22,6 +24,16 @@ export default function PlaylistView() {
   const [newDesc, setNewDesc] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+  const [showImport, setShowImport] = useState(false);
+  const [importMode, setImportMode] = useState<'text' | 'url'>('text');
+  const [importText, setImportText] = useState("");
+  const [importUrl, setImportUrl] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState("");
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
+  const [importProgress, setImportProgress] = useState('');
+  const [importHint, setImportHint] = useState('');
 
   const selectedPlaylist = playlists.find((p) => p.id === selectedPlaylistId);
 
@@ -45,6 +57,99 @@ export default function PlaylistView() {
   const handlePlayAll = useCallback((pl: UserPlaylist) => {
     if (pl.tracks.length > 0) playTrack(pl.tracks[0], pl.tracks);
   }, [playTrack]);
+
+  const triggerUrlImport = useCallback(async () => {
+    if (!importUrl.trim() || importing) return;
+    setImporting(true);
+    setImportError("");
+    setImportHint("");
+    setImportProgress('Подключение к сервису...');
+    try {
+      const res = await fetch('/api/music/import-playlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: importUrl.trim() }),
+      });
+      const data = await res.json();
+
+      if (data.error) {
+        setImportError(data.error);
+        if (data.hint) {
+          setImportHint(data.hint);
+        }
+        return;
+      }
+
+      const rawTracks = data.tracks || [];
+      if (rawTracks.length === 0) {
+        setImportError('Не удалось найти треки по этой ссылке');
+        return;
+      }
+
+      setImportProgress(`Найдено ${rawTracks.length} треков, создаём плейлист...`);
+
+      // Map tracks — use source: "soundcloud" when scTrackId is present
+      const tracks: Track[] = rawTracks.map((t: any, i: number) => {
+        const isPlayable = t._playable === true || !!t.scTrackId;
+        return {
+          id: isPlayable && t.scTrackId
+            ? `sc_url_${t.scTrackId}_${Date.now()}`
+            : `url_import_${i}_${Date.now()}`,
+          title: t.title || t.name || 'Unknown',
+          artist: t.artist || t.artists?.[0]?.name || 'Unknown Artist',
+          album: t.album || '',
+          cover: t.cover || t.image || '',
+          duration: t.duration || 0,
+          genre: t.genre || '',
+          audioUrl: t.audioUrl || '',
+          previewUrl: t.previewUrl || '',
+          source: isPlayable ? ("soundcloud" as const) : ("soundcloud" as const),
+          scTrackId: t.scTrackId || null,
+          scStreamPolicy: t.scStreamPolicy || '',
+          scIsFull: t.scIsFull || false,
+        };
+      });
+
+      const playableCount = data.playableCount ?? tracks.filter(t => !!t.scTrackId).length;
+      const totalCount = data.totalCount ?? tracks.length;
+
+      // Build description with playable info
+      let description: string;
+      if (playableCount === totalCount) {
+        description = `${totalCount} треков из ${data.source || 'внешнего сервиса'} · все воспроизводимы`;
+      } else if (playableCount > 0) {
+        description = `${totalCount} треков из ${data.source || 'внешнего сервиса'} · ${playableCount} воспроизводимы`;
+      } else {
+        description = `${totalCount} треков из ${data.source || 'внешнего сервиса'}`;
+      }
+
+      const newPl: UserPlaylist = {
+        id: `pl_url_${Date.now()}`,
+        name: data.name || `Импорт ${new Date().toLocaleDateString('ru-RU')}`,
+        description,
+        cover: '',
+        tracks,
+        createdAt: Date.now(),
+      };
+
+      useAppStore.setState(s => ({ playlists: [...s.playlists, newPl] }));
+      setShowImport(false);
+      setImportUrl('');
+      setImportProgress('');
+
+      // Show toast with result
+      toast({
+        title: `Плейлист импортирован`,
+        description: `${totalCount} треков из ${data.source || 'внешнего сервиса'}` +
+          (playableCount > 0 ? ` · ${playableCount} воспроизводимы` : ''),
+      });
+    } catch (err: any) {
+      setImportError('Ошибка при импорте. Проверьте ссылку и попробуйте снова.');
+    } finally {
+      setImporting(false);
+      setImportProgress('');
+    }
+  }, [importUrl, importing, toast]);
 
   // ── Detail view for selected playlist ──
   if (selectedPlaylist) {
@@ -166,6 +271,16 @@ export default function PlaylistView() {
             <Plus className="w-4 h-4" />
             Создать
           </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={() => setShowImport(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm"
+            style={{ backgroundColor: "var(--mq-card)", color: "var(--mq-text)", border: "1px solid var(--mq-border)" }}
+          >
+            <Download className="w-4 h-4" />
+            Импорт
+          </motion.button>
         </div>
         <p className="text-sm" style={{ color: "var(--mq-text-muted)" }}>
           {playlists.length} плейлистов
@@ -217,6 +332,187 @@ export default function PlaylistView() {
             >
               Создать
             </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Import playlist dialog */}
+      <AnimatePresence>
+        {showImport && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="rounded-2xl p-4 space-y-3"
+            style={{ backgroundColor: "var(--mq-card)", border: "1px solid var(--mq-border)" }}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold" style={{ color: "var(--mq-text)" }}>Импорт плейлиста</h3>
+              <button onClick={() => { setShowImport(false); setImportError(""); setImportHint(""); }} style={{ color: "var(--mq-text-muted)" }}>
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Tab buttons */}
+            <div className="flex gap-2">
+              <button
+                onClick={() => setImportMode('text')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+                style={{
+                  backgroundColor: importMode === 'text' ? "var(--mq-accent)" : "var(--mq-input-bg)",
+                  color: importMode === 'text' ? "var(--mq-text)" : "var(--mq-text-muted)",
+                  border: "1px solid var(--mq-border)",
+                }}
+              >
+                <ListMusic className="w-3 h-3" /> Текстом
+              </button>
+              <button
+                onClick={() => setImportMode('url')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+                style={{
+                  backgroundColor: importMode === 'url' ? "var(--mq-accent)" : "var(--mq-input-bg)",
+                  color: importMode === 'url' ? "var(--mq-text)" : "var(--mq-text-muted)",
+                  border: "1px solid var(--mq-border)",
+                }}
+              >
+                <Link className="w-3 h-3" /> По ссылке
+              </button>
+            </div>
+
+            {importMode === 'text' ? (
+              <>
+                <p className="text-xs" style={{ color: "var(--mq-text-muted)" }}>
+                  Вставьте названия треков (каждый на новой строке в формате &quot;Исполнитель - Название&quot;):
+                </p>
+                <textarea
+                  value={importText}
+                  onChange={(e) => setImportText(e.target.value)}
+                  placeholder={"Artist - Track Name\nArtist2 - Track Name 2"}
+                  rows={6}
+                  className="w-full rounded-lg px-3 py-2 text-sm resize-none"
+                  style={{ backgroundColor: "var(--mq-input-bg)", border: "1px solid var(--mq-border)", color: "var(--mq-text)" }}
+                />
+                <button
+                  onClick={async () => {
+                    if (!importText.trim()) return;
+                    setImporting(true);
+                    const id = `pl_import_${Date.now()}`;
+                    const lines = importText.trim().split("\n").filter(l => l.trim());
+                    const tracks: Track[] = [];
+                    for (let i = 0; i < lines.length; i++) {
+                      const line = lines[i];
+                      const parts = line.split(" - ");
+                      const title = (parts[1] || parts[0] || "").trim();
+                      const artist = (parts[1] ? parts[0] : "Unknown Artist").trim();
+                      // Try to find on SoundCloud
+                      try {
+                        const query = `${artist} ${title}`;
+                        const res = await fetch(`/api/music/search?q=${encodeURIComponent(query)}`);
+                        if (res.ok) {
+                          const data = await res.json();
+                          if (data.tracks && data.tracks.length > 0) {
+                            tracks.push(data.tracks[0]);
+                            continue;
+                          }
+                        }
+                      } catch {}
+                      tracks.push({
+                        id: `import_${i}_${Date.now()}`,
+                        title,
+                        artist,
+                        album: "",
+                        cover: "",
+                        duration: 0,
+                        genre: "",
+                        source: "soundcloud" as const,
+                        audioUrl: "",
+                        scTrackId: null,
+                        scIsFull: false,
+                      } as Track);
+                    }
+                    const newPl: UserPlaylist = {
+                      id,
+                      name: `Импорт ${new Date().toLocaleDateString("ru-RU")}`,
+                      description: `${tracks.length} треков`,
+                      cover: "",
+                      tracks,
+                      createdAt: Date.now(),
+                    };
+                    useAppStore.setState(s => ({ playlists: [...s.playlists, newPl] }));
+                    setShowImport(false);
+                    setImportText("");
+                    setImporting(false);
+                    toast({
+                      title: "Плейлист импортирован",
+                      description: `${tracks.length} треков добавлено`,
+                    });
+                  }}
+                  disabled={!importText.trim() || importing}
+                  className="w-full py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2"
+                  style={{
+                    backgroundColor: importText.trim() && !importing ? "var(--mq-accent)" : "var(--mq-border)",
+                    color: importText.trim() && !importing ? "var(--mq-text)" : "var(--mq-text-muted)",
+                  }}
+                >
+                  {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                  Импортировать ({importText.trim().split("\n").filter(l => l.trim()).length} треков)
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-xs" style={{ color: "var(--mq-text-muted)" }}>
+                  Вставьте ссылку на плейлист (VK, Яндекс.Музыка, Spotify, YouTube, Apple Music, SoundCloud):
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    ref={importInputRef}
+                    type="url"
+                    value={importUrl}
+                    onChange={(e) => { setImportUrl(e.target.value); setImportError(""); setImportHint(""); }}
+                    placeholder="https://open.spotify.com/playlist/..."
+                    className="flex-1 rounded-lg px-3 py-2 text-sm"
+                    style={{ backgroundColor: "var(--mq-input-bg)", border: "1px solid var(--mq-border)", color: "var(--mq-text)" }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !importing && importUrl.trim()) triggerUrlImport(); }}
+                  />
+                  <motion.button
+                    whileTap={{ scale: 0.95 }}
+                    onClick={triggerUrlImport}
+                    disabled={importing || !importUrl.trim()}
+                    className="px-4 py-2 rounded-lg text-sm font-medium"
+                    style={{
+                      backgroundColor: importUrl.trim() && !importing ? "var(--mq-accent)" : "var(--mq-border)",
+                      color: importUrl.trim() && !importing ? "var(--mq-text)" : "var(--mq-text-muted)",
+                    }}
+                  >
+                    {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                  </motion.button>
+                </div>
+                {importing && importProgress && (
+                  <div className="flex items-center gap-2 py-1">
+                    <Loader2 className="w-3 h-3 animate-spin" style={{ color: "var(--mq-accent)" }} />
+                    <p className="text-xs" style={{ color: "var(--mq-text-muted)" }}>{importProgress}</p>
+                  </div>
+                )}
+                {importError && (
+                  <div className="space-y-1">
+                    <div className="flex items-start gap-1.5">
+                      <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" style={{ color: "#ef4444" }} />
+                      <p className="text-xs" style={{ color: "#ef4444" }}>{importError}</p>
+                    </div>
+                  </div>
+                )}
+                {importHint && !importing && (
+                  <div className="rounded-lg p-2.5" style={{ backgroundColor: "var(--mq-input-bg)", border: "1px solid var(--mq-border)" }}>
+                    <p className="text-[11px] leading-relaxed" style={{ color: "var(--mq-text-muted)" }}>
+                      💡 {importHint}
+                    </p>
+                  </div>
+                )}
+                <p className="text-[10px]" style={{ color: "var(--mq-text-muted)", opacity: 0.6 }}>
+                  Поддержка: VK, Яндекс.Музыка, Spotify, YouTube Music, Apple Music, SoundCloud
+                </p>
+              </>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

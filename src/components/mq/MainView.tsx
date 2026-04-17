@@ -38,7 +38,7 @@ export default function MainView() {
 
   // Build taste profile from liked tracks + history
   const tasteProfile = useMemo(() => {
-    const { likedTracksData, history, likedTrackIds, dislikedTrackIds } = useAppStore.getState();
+    const { likedTracksData, history, likedTrackIds, dislikedTrackIds, likedTracksData: likedData } = useAppStore.getState();
     const safeLiked = Array.isArray(likedTrackIds) ? likedTrackIds : [];
     const safeDisliked = Array.isArray(dislikedTrackIds) ? dislikedTrackIds : [];
     const safeHistory = Array.isArray(history) ? history : [];
@@ -46,7 +46,7 @@ export default function MainView() {
     const genreCounts: Record<string, number> = {};
     const artistCounts: Record<string, number> = {};
 
-    for (const track of likedTracksData) {
+    for (const track of likedData) {
       if (track.genre) {
         genreCounts[track.genre] = (genreCounts[track.genre] || 0) + 2;
       }
@@ -73,8 +73,26 @@ export default function MainView() {
 
     const excludeIds = [...safeLiked, ...safeDisliked, ...safeHistory.slice(0, 30).map(h => h.track.id)].join(",");
 
-    return { topGenres, topArtists, excludeIds };
-  }, [likedTrackIds, dislikedTrackIds, history]);
+    // Build disliked artists/genres from disliked tracks data
+    const dislikedArtistsSet = new Set<string>();
+    const dislikedGenresSet = new Set<string>();
+    // Get all track data we have (liked data and history) and check if any are in dislikedTrackIds
+    const allKnownTracks = [...likedData, ...safeHistory.slice(0, 100).map(h => h.track)];
+    for (const track of allKnownTracks) {
+      if (safeDisliked.includes(track.id)) {
+        if (track.artist) dislikedArtistsSet.add(track.artist);
+        if (track.genre) dislikedGenresSet.add(track.genre);
+      }
+    }
+
+    return {
+      topGenres,
+      topArtists,
+      excludeIds,
+      dislikedArtists: [...dislikedArtistsSet].join(","),
+      dislikedGenres: [...dislikedGenresSet].join(","),
+    };
+  }, [likedTrackIds, dislikedTrackIds, likedTracksData]);
 
   // Fetch trending tracks
   useEffect(() => {
@@ -101,7 +119,8 @@ export default function MainView() {
   const loadRecommendations = useCallback(async () => {
     setIsRecLoading(true);
     try {
-      const { topGenres, topArtists, excludeIds } = tasteProfile;
+      const { topGenres, topArtists, excludeIds, dislikedArtists, dislikedGenres } = tasteProfile;
+      const disliked = useAppStore.getState().dislikedTrackIds || [];
       const params = new URLSearchParams();
 
       if (topGenres.length > 0 || topArtists.length > 0) {
@@ -111,10 +130,16 @@ export default function MainView() {
       } else {
         params.set("genre", "random");
       }
+      if (disliked.length > 0) params.set("dislikedIds", disliked.join(","));
+      if (dislikedArtists) params.set("dislikedArtists", dislikedArtists);
+      if (dislikedGenres) params.set("dislikedGenres", dislikedGenres);
 
       const res = await fetch(`/api/music/recommendations?${params}`);
       const data = await res.json();
-      setRecommendations(data.tracks || []);
+      // Filter out disliked tracks on client side too
+      const dislikedSet = new Set(disliked);
+      const filtered = (data.tracks || []).filter((t: Track) => !dislikedSet.has(t.id));
+      setRecommendations(filtered);
     } catch {
       setRecommendations([]);
     } finally {
@@ -124,7 +149,8 @@ export default function MainView() {
 
   useEffect(() => {
     loadRecommendations();
-  }, [loadRecommendations]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handlePlayAll = useCallback(() => {
     if (trendingTracks.length > 0) playTrack(trendingTracks[0], trendingTracks);
@@ -206,13 +232,13 @@ export default function MainView() {
         style={{ background: "var(--mq-gradient), var(--mq-card)", border: "1px solid var(--mq-border)" }}
       >
         <div className="relative z-10">
-          <h1 className="text-2xl lg:text-3xl font-bold mb-2" style={{ color: "var(--mq-text)" }}>
+          <h1 className="text-2xl lg:text-3xl font-bold" style={{ color: "var(--mq-text)" }}>
             {getGreeting()}
           </h1>
-          <p className="text-sm lg:text-base" style={{ color: "var(--mq-text-muted)" }}>
-            {getGreetingSubtext()}
-          </p>
         </div>
+        <p className="text-sm lg:text-base" style={{ color: "var(--mq-text-muted)" }}>
+          {getGreetingSubtext()}
+        </p>
       </motion.div>
 
       {/* Quick stats - CLICKABLE */}
@@ -273,23 +299,18 @@ export default function MainView() {
             <h2 className="text-lg font-bold" style={{ color: "var(--mq-text)" }}>
               {hasTasteData ? "Рекомендации для вас" : "Откройте для себя"}
             </h2>
-            {hasTasteData && tasteProfile.topGenres.length > 0 && (
-              <span className="text-xs px-2 py-0.5 rounded-full"
-                style={{ backgroundColor: "var(--mq-input-bg)", color: "var(--mq-text-muted)" }}>
-                {tasteProfile.topGenres[0]}
-              </span>
-            )}
+
           </div>
           <div className="flex items-center gap-2">
             {recommendations.length > 0 && (
               <motion.button
                 whileTap={{ scale: 0.95 }}
                 onClick={handlePlayRecAll}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+                className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium"
                 style={{ backgroundColor: "var(--mq-accent)", color: "var(--mq-text)" }}
               >
-                <Play className="w-3 h-3" style={{ marginLeft: 1 }} />
-                Воспроизвести все
+                <Play className="w-2.5 h-2.5" style={{ marginLeft: 1 }} />
+                Все
               </motion.button>
             )}
             <motion.button whileTap={{ scale: 0.9 }} onClick={loadRecommendations} disabled={isRecLoading}
@@ -341,11 +362,11 @@ export default function MainView() {
             <motion.button
               whileTap={{ scale: 0.95 }}
               onClick={handlePlayAll}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium"
               style={{ backgroundColor: "var(--mq-accent)", color: "var(--mq-text)" }}
             >
-              <Play className="w-3 h-3" style={{ marginLeft: 1 }} />
-              Воспроизвести все
+              <Play className="w-2.5 h-2.5" style={{ marginLeft: 1 }} />
+              Все
             </motion.button>
           )}
         </div>

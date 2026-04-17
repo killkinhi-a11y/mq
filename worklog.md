@@ -76,3 +76,23 @@ loadMessages: (incoming) => set((s) => {
 5. `src/components/mq/MainView.tsx` — FIX 4, FIX 7
 6. `src/components/mq/SearchView.tsx` — FIX 4
 7. `src/components/mq/HistoryView.tsx` — FIX 4
+---
+Task ID: 1
+Agent: Main
+Task: Restore project from user-provided zip files (mq-player-source.zip + mq-player-website.zip)
+
+Work Log:
+- Extracted both zip files to /tmp for comparison
+- Found 10 missing files in the server project (API routes: upload, upload/file, stories/like, stories/comment, stories, user/theme, auth/update-username, auth/username-check, import-playlist; component: StoriesView.tsx)
+- Copied all src/, prisma/, public/ from source zip to project
+- Preserved critical server fixes: proxyClientMaxBodySize in next.config.ts, maxDuration=600 on upload route
+- Copied .env (DATABASE_URL) from website zip
+- Fixed keep-alive-prod.sh to use standalone server
+- Rebuilt project successfully (all 22 routes present)
+- Restarted server and keep-alive, all health checks passing
+
+Stage Summary:
+- Project restored from user's local files with all missing API routes and components
+- Server running stable on port 3000 (HTTP 307 on /, 200 on /play)
+- All API routes responding correctly
+- Key new features from user's version: PWA support, Outfit font, sleep timer, likes/dislikes, stories system, splash animation, theme switching, username management

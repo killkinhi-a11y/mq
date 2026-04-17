@@ -3,9 +3,8 @@
 import { useState, useCallback } from "react";
 import { type Track } from "@/lib/musicApi";
 import { useAppStore } from "@/store/useAppStore";
-import { Play, Pause, Clock, Heart, ThumbsDown, MoreHorizontal } from "lucide-react";
+import { Play, Pause, Heart, ThumbsDown, MoreHorizontal } from "lucide-react";
 import { motion } from "framer-motion";
-import { formatDuration } from "@/lib/musicApi";
 import ContextMenu from "./ContextMenu";
 
 interface TrackCardProps {
@@ -58,68 +57,62 @@ export default function TrackCard({ track, index = 0, queue }: TrackCardProps) {
     ? { initial: { opacity: 0, y: 20 }, animate: { opacity: 1, y: 0 }, transition: { delay: index * 0.03 } }
     : {};
 
-  const sourceTag = track.scIsFull ? "SC Полный" : "SC Превью";
-
   return (
     <>
       <motion.div
         {...motionProps}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
-        className="flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-200 group"
+        className="flex items-center gap-2 sm:gap-3 p-2 sm:p-3 rounded-xl cursor-pointer transition-all duration-200 group"
         style={{
           backgroundColor: isActive ? "var(--mq-accent)" : "var(--mq-card)",
         }}
-        whileHover={animationsEnabled ? { scale: 1.02 } : undefined}
+        whileHover={animationsEnabled ? { scale: 1.01 } : undefined}
         whileTap={animationsEnabled ? { scale: 0.98 } : undefined}
       >
-        <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
+        {/* Cover — smaller on mobile */}
+        <div className="relative w-10 h-10 sm:w-12 sm:h-12 rounded-lg overflow-hidden flex-shrink-0">
           <img src={track.cover} alt={track.album} className="w-full h-full object-cover" loading="lazy" />
           <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
             style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
-            {isActive && isPlaying ? <Pause className="w-5 h-5" style={{ color: "var(--mq-text)" }} /> : <Play className="w-5 h-5" style={{ color: "var(--mq-text)" }} />}
+            {isActive && isPlaying ? <Pause className="w-4 h-4 sm:w-5 sm:h-5" style={{ color: "var(--mq-text)" }} /> : <Play className="w-4 h-4 sm:w-5 sm:h-5" style={{ color: "var(--mq-text)" }} />}
           </div>
           {isActive && isPlaying && (
             <div className="absolute inset-0 flex items-center justify-center opacity-100 group-hover:opacity-0 transition-opacity"
               style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
-              <Pause className="w-5 h-5" style={{ color: "var(--mq-text)" }} />
+              <Pause className="w-4 h-4 sm:w-5 sm:h-5" style={{ color: "var(--mq-text)" }} />
             </div>
           )}
         </div>
 
+        {/* Track info — always take remaining space */}
         <div className="flex-1 min-w-0">
-          <p className="font-medium text-sm truncate" style={{ color: "var(--mq-text)" }}>
+          <p className="font-medium text-xs sm:text-sm truncate" style={{ color: "var(--mq-text)" }}>
             {track.title}
           </p>
-          <p className="text-xs truncate" style={{ color: "var(--mq-text-muted)" }}>
-            {track.artist} • {track.album}
+          <p className="text-[10px] sm:text-xs truncate" style={{ color: "var(--mq-text-muted)" }}>
+            {track.artist}
           </p>
         </div>
 
-        <div className="flex items-center gap-1 flex-shrink-0">
-          {/* Like/Dislike icons — large touch targets, always visible */}
-          <button onPointerDown={(e) => e.stopPropagation()} onClick={handleLikeClick} className="p-2 rounded-lg transition-all duration-150 active:scale-90"
-            style={{ color: isLiked ? "#ef4444" : "var(--mq-text-muted)", backgroundColor: isLiked ? "rgba(239,68,68,0.12)" : "transparent", touchAction: "manipulation" }}>
-            <Heart className="w-4.5 h-4.5" style={isLiked ? { fill: "#ef4444" } : {}} />
-          </button>
-          <button onPointerDown={(e) => e.stopPropagation()} onClick={handleDislikeClick} className="p-2 rounded-lg transition-all duration-150 active:scale-90"
-            style={{ color: isDisliked ? "#ef4444" : "var(--mq-text-muted)", backgroundColor: isDisliked ? "rgba(239,68,68,0.12)" : "transparent", touchAction: "manipulation" }}>
-            <ThumbsDown className="w-4.5 h-4.5" style={isDisliked ? { fill: "#ef4444" } : {}} />
+        {/* Actions — compact on mobile, only show what fits */}
+        <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
+          {/* Like — compact on mobile */}
+          <button onPointerDown={(e) => e.stopPropagation()} onClick={handleLikeClick}
+            className="p-1 sm:p-1.5 rounded-lg active:scale-90"
+            style={{ color: isLiked ? "#ef4444" : "var(--mq-text-muted)", touchAction: "manipulation" }}>
+            <Heart className="w-3.5 h-3.5 sm:w-4 sm:h-4" style={isLiked ? { fill: "#ef4444" } : {}} />
           </button>
 
-          {sourceTag && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full hidden sm:block"
-              style={{ backgroundColor: "var(--mq-input-bg)", color: "var(--mq-text-muted)" }}>
-              {sourceTag}
-            </span>
-          )}
-          <Clock className="w-3 h-3 hidden sm:block" style={{ color: "var(--mq-text-muted)" }} />
-          <span className="text-xs hidden sm:block" style={{ color: "var(--mq-text-muted)" }}>
-            {formatDuration(track.duration)}
-          </span>
+          {/* Dislike — hidden on very small mobile to save space */}
+          <button onPointerDown={(e) => e.stopPropagation()} onClick={handleDislikeClick}
+            className="p-1 sm:p-1.5 rounded-lg active:scale-90 hidden sm:flex"
+            style={{ color: isDisliked ? "#ef4444" : "var(--mq-text-muted)", touchAction: "manipulation" }}>
+            <ThumbsDown className="w-3.5 h-3.5 sm:w-4 sm:h-4" style={isDisliked ? { fill: "#ef4444" } : {}} />
+          </button>
 
-          {/* More button */}
-          <button onClick={handleMoreClick} className="p-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
+          {/* More — always accessible */}
+          <button onClick={handleMoreClick} className="p-1 sm:p-1.5 rounded-lg sm:opacity-0 sm:group-hover:opacity-100"
             style={{ color: "var(--mq-text-muted)" }}>
             <MoreHorizontal className="w-4 h-4" />
           </button>
