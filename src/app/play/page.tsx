@@ -1,68 +1,56 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import dynamic from "next/dynamic";
-import { AnimatePresence, motion } from "framer-motion";
-import { useAppStore } from "@/store/useAppStore";
-import { themes, applyThemeToDOM } from "@/lib/themes";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
-// Dynamic imports with SSR disabled to prevent OOM on containerized environments
-const AuthView = dynamic(() => import("@/components/mq/AuthView"), { ssr: false });
-const MainView = dynamic(() => import("@/components/mq/MainView"), { ssr: false });
-const SearchView = dynamic(() => import("@/components/mq/SearchView"), { ssr: false });
-const MessengerView = dynamic(() => import("@/components/mq/MessengerView"), { ssr: false });
-const SettingsView = dynamic(() => import("@/components/mq/SettingsView"), { ssr: false });
-const ProfileView = dynamic(() => import("@/components/mq/ProfileView"), { ssr: false });
-const PlaylistView = dynamic(() => import("@/components/mq/PlaylistView"), { ssr: false });
-const PublicPlaylistsView = dynamic(() => import("@/components/mq/PublicPlaylistsView"), { ssr: false });
-const HistoryView = dynamic(() => import("@/components/mq/HistoryView"), { ssr: false });
-const StoriesView = dynamic(() => import("@/components/mq/StoriesView"), { ssr: false });
-const PlayerBar = dynamic(() => import("@/components/mq/PlayerBar"), { ssr: false });
-const FullTrackView = dynamic(() => import("@/components/mq/FullTrackView"), { ssr: false });
-const PiPPlayer = dynamic(() => import("@/components/mq/PiPPlayer"), { ssr: false });
-const NavBar = dynamic(() => import("@/components/mq/NavBar"), { ssr: false });
-const MobileNav = dynamic(() => import("@/components/mq/MobileNav"), { ssr: false });
+// Defer ALL heavy imports to client-side only using lazy + dynamic check
+// The SSR version of this page renders ONLY a minimal splash screen.
+// All components are loaded client-side after hydration.
 
-const viewVariants = {
-  initial: { opacity: 0, y: 8 },
-  animate: { opacity: 1, y: 0 },
-  exit: { opacity: 0, y: -8 },
-};
+function useIsClient() {
+  const [isClient, setIsClient] = useState(false);
+  useEffect(() => { setIsClient(true); }, []);
+  return isClient;
+}
 
-export default function Home() {
-  const [mounted, setMounted] = useState(false);
+// Client-only app shell - only imported when isClient is true
+function AppShell() {
+  // All heavy imports inside the client-only component
+  const { motion, AnimatePresence } = require("framer-motion");
+  const { useAppStore } = require("@/store/useAppStore");
+  const { themes, applyThemeToDOM } = require("@/lib/themes");
+
+  const AuthView = lazy(() => import("@/components/mq/AuthView"));
+  const MainView = lazy(() => import("@/components/mq/MainView"));
+  const SearchView = lazy(() => import("@/components/mq/SearchView"));
+  const MessengerView = lazy(() => import("@/components/mq/MessengerView"));
+  const SettingsView = lazy(() => import("@/components/mq/SettingsView"));
+  const ProfileView = lazy(() => import("@/components/mq/ProfileView"));
+  const PlaylistView = lazy(() => import("@/components/mq/PlaylistView"));
+  const PublicPlaylistsView = lazy(() => import("@/components/mq/PublicPlaylistsView"));
+  const HistoryView = lazy(() => import("@/components/mq/HistoryView"));
+  const StoriesView = lazy(() => import("@/components/mq/StoriesView"));
+  const PlayerBar = lazy(() => import("@/components/mq/PlayerBar"));
+  const FullTrackView = lazy(() => import("@/components/mq/FullTrackView"));
+  const PiPPlayer = lazy(() => import("@/components/mq/PiPPlayer"));
+  const NavBar = lazy(() => import("@/components/mq/NavBar"));
+  const MobileNav = lazy(() => import("@/components/mq/MobileNav"));
+
   const {
     currentView, currentTheme, customAccent, fontSize, animationsEnabled,
     isAuthenticated, setView, searchQuery, setSearchQuery,
   } = useAppStore();
 
-  // Wait for client-side hydration before rendering app UI
-  // This prevents hydration mismatch from Zustand localStorage persist
   useEffect(() => {
-    setMounted(true);
-    // Remove splash screen now that app is mounted
     if (typeof window !== "undefined" && window.__mqRemoveSplash) {
       window.__mqRemoveSplash();
     }
   }, []);
 
-  // Safety net: force-mount after 3s even if useEffect didn't fire
   useEffect(() => {
-    const t = setTimeout(() => setMounted(true), 3000);
-    return () => clearTimeout(t);
-  }, []);
+    if (isAuthenticated && currentView === "auth") setView("main");
+  }, [isAuthenticated, currentView, setView]);
 
-  // Fix: if authenticated but stuck on auth view, redirect to main
   useEffect(() => {
-    if (!mounted) return;
-    if (isAuthenticated && currentView === "auth") {
-      setView("main");
-    }
-  }, [mounted, isAuthenticated, currentView, setView]);
-
-  // Apply theme to DOM
-  useEffect(() => {
-    if (!mounted) return;
     const theme = themes[currentTheme];
     if (!theme) {
       useAppStore.getState().setTheme("default");
@@ -70,15 +58,12 @@ export default function Home() {
     } else {
       applyThemeToDOM(theme, customAccent || undefined);
     }
-  }, [mounted, currentTheme, customAccent]);
+  }, [currentTheme, customAccent]);
 
-  // Apply font size
   useEffect(() => {
-    if (!mounted) return;
     document.documentElement.style.fontSize = `${fontSize}px`;
-  }, [mounted, fontSize]);
+  }, [fontSize]);
 
-  // Auto-clear search when leaving search view
   const prevViewRef = useRef(currentView);
   useEffect(() => {
     if (prevViewRef.current === "search" && currentView !== "search" && searchQuery) {
@@ -87,72 +72,25 @@ export default function Home() {
     prevViewRef.current = currentView;
   }, [currentView, searchQuery, setSearchQuery]);
 
-  // Don't render interactive UI until hydrated
-  if (!mounted) {
-    return (
-      <div
-        className="min-h-screen flex flex-col items-center justify-center gap-6"
-        style={{ backgroundColor: "var(--mq-bg, #0e0e0e)" }}
-      >
-        {/* Splash animation */}
-        <motion.div
-          initial={{ scale: 0.5, opacity: 0 }}
-          animate={{ scale: [0.5, 1.1, 1], opacity: [0, 1, 1] }}
-          transition={{ duration: 0.8, ease: "easeOut" }}
-          className="flex flex-col items-center gap-3"
-        >
-          <div
-            className="w-20 h-20 rounded-2xl flex items-center justify-center shadow-2xl"
-            style={{
-              backgroundColor: "var(--mq-accent, #e03131)",
-              boxShadow: "0 0 40px rgba(224,49,49,0.4)",
-            }}
-          >
-            <span className="text-3xl font-black text-white">mq</span>
-          </div>
-        </motion.div>
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: [0, 0.5, 1], y: [10, 0, 0] }}
-          transition={{ duration: 1, delay: 0.3 }}
-        >
-          <p className="text-sm" style={{ color: "var(--mq-text-muted, #888)" }}>Музыкальный плеер</p>
-        </motion.div>
-        <motion.div
-          initial={{ width: 0 }}
-          animate={{ width: "120px" }}
-          transition={{ duration: 1.5, delay: 0.5, ease: "easeInOut" }}
-          className="h-0.5 rounded-full"
-          style={{ backgroundColor: "var(--mq-accent, #e03131)", opacity: 0.4 }}
-        />
-      </div>
-    );
-  }
+  const viewVariants = {
+    initial: { opacity: 0, y: 8 },
+    animate: { opacity: 1, y: 0 },
+    exit: { opacity: 0, y: -8 },
+  };
 
   const renderView = () => {
     switch (currentView) {
-      case "auth":
-        return <AuthView />;
-      case "main":
-        return <MainView />;
-      case "search":
-        return <SearchView />;
-      case "messenger":
-        return <MessengerView />;
-      case "settings":
-        return <SettingsView />;
-      case "profile":
-        return <ProfileView />;
-      case "playlists":
-        return <PlaylistView />;
-      case "public-playlists":
-        return <PublicPlaylistsView />;
-      case "history":
-        return <HistoryView />;
-      case "stories":
-        return <StoriesView />;
-      default:
-        return <MainView />;
+      case "auth": return <AuthView />;
+      case "main": return <MainView />;
+      case "search": return <SearchView />;
+      case "messenger": return <MessengerView />;
+      case "settings": return <SettingsView />;
+      case "profile": return <ProfileView />;
+      case "playlists": return <PlaylistView />;
+      case "public-playlists": return <PublicPlaylistsView />;
+      case "history": return <HistoryView />;
+      case "stories": return <StoriesView />;
+      default: return <MainView />;
     }
   };
 
@@ -160,10 +98,15 @@ export default function Home() {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: "var(--mq-bg)" }}>
-      {/* Desktop nav */}
-      {showNav && <NavBar />}
+      <Suspense fallback={
+        <nav className="fixed top-0 left-0 right-0 z-50 h-14 flex items-center px-4 border-b"
+          style={{ backgroundColor: "var(--mq-surface, #161616)", borderColor: "var(--mq-border, #222)" }}>
+          <div className="w-8 h-8 rounded-lg" style={{ backgroundColor: "var(--mq-accent, #e03131)" }} />
+        </nav>
+      }>
+        {showNav && <NavBar />}
+      </Suspense>
 
-      {/* Main content */}
       <main className={showNav ? "pt-16 lg:pt-14" : ""}>
         <AnimatePresence mode="wait">
           <motion.div
@@ -174,22 +117,51 @@ export default function Home() {
             exit={animationsEnabled ? "exit" : undefined}
             transition={{ duration: 0.2 }}
           >
-            {renderView()}
+            <Suspense fallback={
+              <div className="flex items-center justify-center py-8">
+                <div className="w-6 h-6 border-2 rounded-full animate-spin"
+                  style={{ borderColor: "var(--mq-accent, #e03131)", borderTopColor: "transparent" }} />
+              </div>
+            }>
+              {renderView()}
+            </Suspense>
           </motion.div>
         </AnimatePresence>
       </main>
 
-      {/* Player bar (not on auth view) */}
-      {showNav && <PlayerBar />}
-
-      {/* Full screen track view overlay */}
-      <FullTrackView />
-
-      {/* PiP Player */}
-      <PiPPlayer />
-
-      {/* Mobile nav */}
-      {showNav && <MobileNav />}
+      <Suspense fallback={null}>{showNav && <PlayerBar />}</Suspense>
+      <Suspense fallback={null}><FullTrackView /></Suspense>
+      <Suspense fallback={null}><PiPPlayer /></Suspense>
+      <Suspense fallback={null}>{showNav && <MobileNav />}</Suspense>
     </div>
   );
+}
+
+// Main page component - minimal SSR, full client
+export default function PlayPage() {
+  const isClient = useIsClient();
+
+  // SSR: render minimal splash (no heavy deps)
+  // Client: render full app
+  if (!isClient) {
+    return (
+      <div
+        className="min-h-screen flex flex-col items-center justify-center gap-6"
+        style={{ backgroundColor: "#0e0e0e" }}
+      >
+        <div className="flex flex-col items-center gap-3">
+          <div
+            className="w-20 h-20 rounded-2xl flex items-center justify-center"
+            style={{ backgroundColor: "#e03131", boxShadow: "0 0 40px rgba(224,49,49,0.4)" }}
+          >
+            <span className="text-3xl font-black text-white">mq</span>
+          </div>
+        </div>
+        <p className="text-sm" style={{ color: "#888" }}>Музыкальный плеер</p>
+        <div className="h-0.5 w-24 rounded-full" style={{ backgroundColor: "#e03131", opacity: 0.4 }} />
+      </div>
+    );
+  }
+
+  return <AppShell />;
 }

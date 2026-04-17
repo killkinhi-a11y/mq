@@ -1,8 +1,6 @@
 #!/bin/bash
-cd /home/z/my-project
+cd /home/z/my-project/.next/standalone
 while true; do
-    echo "[$(date)] Starting server..."
-    npx next dev --port 3000 2>&1
-    echo "[$(date)] Server exited, restarting in 3s..."
-    sleep 3
+  PORT=3001 NODE_OPTIONS="--max-old-space-size=4096" node server.js -H 0.0.0.0 >> /tmp/mq-run.log 2>&1
+  sleep 2
 done
