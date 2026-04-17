@@ -88,7 +88,7 @@ export default function FullTrackView() {
     return () => { cancelled = true; };
   }, [currentTrack, showSimilar, setSimilarTracks, setSimilarTracksLoading]);
 
-  // ── Ambient visualization — decorative aurora blobs, not tied to audio ──
+  // ── Ambient visualization — composite sinusoidal waves, not tied to audio ──
   useEffect(() => {
     const canvas = waveCanvasRef.current;
     if (!canvas || !isFullTrackViewOpen) return;
@@ -96,26 +96,22 @@ export default function FullTrackView() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Flowing aurora blobs
-    const blobs = Array.from({ length: 7 }, () => ({
-      x: Math.random(),
-      y: 0.1 + Math.random() * 0.8,
-      radius: 40 + Math.random() * 80,
-      phase: Math.random() * Math.PI * 2,
-      sx: 0.02 + Math.random() * 0.06,
-      sy: 0.01 + Math.random() * 0.04,
-      drift: 0.15 + Math.random() * 0.35,
-    }));
+    // 5 waves distributed at different vertical positions
+    const waves = [
+      { segs: 50, speed: 0.5, amp: 0.18, phase: 0, yOff: 0.3, alpha: 0.25, lw: 1.2 },
+      { segs: 60, speed: 0.7, amp: 0.22, phase: 1.5, yOff: 0.5, alpha: 0.35, lw: 1.5 },
+      { segs: 45, speed: 0.4, amp: 0.15, phase: 3.0, yOff: 0.65, alpha: 0.2, lw: 1.0 },
+      { segs: 80, speed: 1.0, amp: 0.1, phase: 4.5, yOff: 0.45, alpha: 0.12, lw: 0.8 },
+      { segs: 35, speed: 0.3, amp: 0.25, phase: 2.0, yOff: 0.8, alpha: 0.18, lw: 1.3 },
+    ];
 
-    // Sparkle particles
+    // 30 sparkle particles on wave paths
     const sparkles = Array.from({ length: 30 }, () => ({
-      x: Math.random(),
-      y: Math.random(),
-      size: 0.5 + Math.random() * 2,
+      waveIdx: Math.floor(Math.random() * waves.length),
+      xFrac: Math.random(),
+      size: 1 + Math.random() * 2.5,
       phase: Math.random() * Math.PI * 2,
-      twinkle: 0.4 + Math.random() * 2,
-      vx: (Math.random() - 0.5) * 0.08,
-      vy: (Math.random() - 0.5) * 0.06,
+      twinkle: 0.6 + Math.random() * 2.0,
     }));
 
     const draw = () => {
@@ -141,38 +137,74 @@ export default function FullTrackView() {
 
       const t = performance.now() / 1000;
 
-      // Aurora blobs
-      for (const bl of blobs) {
-        const bx = bl.x + Math.sin(t * bl.sx + bl.phase) * bl.drift;
-        const by = bl.y + Math.cos(t * bl.sy + bl.phase * 1.4) * bl.drift * 0.6;
-        const px = ((bx % 1) + 1) % 1 * w;
-        const py = by * h;
-        const breathe = 0.7 + 0.3 * Math.sin(t * 0.4 + bl.phase);
-        const rad = bl.radius * breathe;
+      // Central radial glow pulse
+      const pulseAlpha = 0.04 + 0.03 * Math.sin(0.6 * t);
+      const glowGrad = ctx.createRadialGradient(w * 0.5, h * 0.5, 0, w * 0.5, h * 0.5, Math.max(w, h) * 0.35);
+      glowGrad.addColorStop(0, `rgba(${r},${g},${b},${pulseAlpha})`);
+      glowGrad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+      ctx.beginPath();
+      ctx.arc(w * 0.5, h * 0.5, Math.max(w, h) * 0.35, 0, Math.PI * 2);
+      ctx.fillStyle = glowGrad;
+      ctx.fill();
 
-        const grad = ctx.createRadialGradient(px, py, 0, px, py, rad);
-        grad.addColorStop(0, `rgba(${r},${g},${b},0.06)`);
-        grad.addColorStop(0.5, `rgba(${r},${g},${b},0.025)`);
-        grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+      // Compute and render each wave
+      for (const wave of waves) {
+        const points: { x: number; y: number }[] = [];
+        for (let i = 0; i < wave.segs; i++) {
+          const x = (i / (wave.segs - 1)) * w;
+          const xn = i / (wave.segs - 1);
+          const yNorm = 0.6 * Math.sin(t * wave.speed + wave.phase + 0.7 * xn * Math.PI * 2)
+            + 0.3 * Math.sin(t * wave.speed * 1.7 + 0.5 * wave.phase + 1.3 * xn * Math.PI * 2)
+            + 0.1 * Math.cos(t * wave.speed * 0.5 + 2.1 * xn * Math.PI * 2);
+          const y = wave.yOff * h - yNorm * wave.amp * h;
+          points.push({ x, y });
+        }
+
+        // Glow stroke (wider, softer)
         ctx.beginPath();
-        ctx.arc(px, py, rad, 0, Math.PI * 2);
-        ctx.fillStyle = grad;
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+        ctx.strokeStyle = `rgba(${r},${g},${b},${wave.alpha * 0.25})`;
+        ctx.lineWidth = wave.lw + 5;
+        ctx.lineJoin = "bevel";
+        ctx.lineCap = "round";
+        ctx.stroke();
+
+        // Main stroke
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+        ctx.strokeStyle = `rgba(${r},${g},${b},${wave.alpha})`;
+        ctx.lineWidth = wave.lw;
+        ctx.lineJoin = "bevel";
+        ctx.lineCap = "round";
+        ctx.stroke();
+
+        // Gradient fill below wave
+        const gradient = ctx.createLinearGradient(0, (wave.yOff - wave.amp) * h, 0, h);
+        gradient.addColorStop(0, `rgba(${r},${g},${b},${wave.alpha * 0.08})`);
+        gradient.addColorStop(1, `rgba(${r},${g},${b},0)`);
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+        ctx.lineTo(w, h);
+        ctx.lineTo(0, h);
+        ctx.closePath();
+        ctx.fillStyle = gradient;
         ctx.fill();
       }
 
-      // Sparkles
+      // Sparkle particles on wave paths
       for (const sp of sparkles) {
-        sp.x += sp.vx * 0.001;
-        sp.y += sp.vy * 0.001;
-        if (sp.x < 0) sp.x = 1;
-        if (sp.x > 1) sp.x = 0;
-        if (sp.y < 0) sp.y = 1;
-        if (sp.y > 1) sp.y = 0;
-
-        const px = sp.x * w;
-        const py = sp.y * h;
-        const tw = 0.2 + 0.8 * Math.pow(Math.max(0, Math.sin(t * sp.twinkle + sp.phase)), 3);
-        const alpha = tw * 0.5;
+        const wave = waves[sp.waveIdx];
+        const xn = sp.xFrac;
+        const yNorm = 0.6 * Math.sin(t * wave.speed + wave.phase + 0.7 * xn * Math.PI * 2)
+          + 0.3 * Math.sin(t * wave.speed * 1.7 + 0.5 * wave.phase + 1.3 * xn * Math.PI * 2)
+          + 0.1 * Math.cos(t * wave.speed * 0.5 + 2.1 * xn * Math.PI * 2);
+        const px = xn * w;
+        const py = wave.yOff * h - yNorm * wave.amp * h;
+        const tw = 0.2 + 0.8 * Math.pow(Math.sin(t * sp.twinkle + sp.phase), 2);
+        const alpha = tw * 0.6;
         const size = sp.size * (0.5 + tw * 0.5);
 
         ctx.beginPath();
@@ -180,16 +212,6 @@ export default function FullTrackView() {
         ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
         ctx.fill();
       }
-
-      // Subtle center glow pulse
-      const pulseAlpha = 0.03 + 0.02 * Math.sin(t * 0.7);
-      const glowGrad = ctx.createRadialGradient(w * 0.5, h * 0.5, 0, w * 0.5, h * 0.5, Math.max(w, h) * 0.4);
-      glowGrad.addColorStop(0, `rgba(${r},${g},${b},${pulseAlpha})`);
-      glowGrad.addColorStop(1, `rgba(${r},${g},${b},0)`);
-      ctx.beginPath();
-      ctx.arc(w * 0.5, h * 0.5, Math.max(w, h) * 0.4, 0, Math.PI * 2);
-      ctx.fillStyle = glowGrad;
-      ctx.fill();
     };
     draw();
     return () => { if (waveAnimRef.current) cancelAnimationFrame(waveAnimRef.current); };

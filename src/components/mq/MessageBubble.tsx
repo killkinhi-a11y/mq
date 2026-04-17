@@ -84,7 +84,7 @@ export default function MessageBubble({ message, currentUserId }: MessageBubbleP
       animate={{ opacity: 1, y: 0, scale: 1 }}
       className={`flex ${isMine ? "justify-end" : "justify-start"}`}
     >
-      <div className="max-w-[80%]">
+      <div className="max-w-[80%] lg:max-w-[65%]">
         {/* Show sender name for received messages */}
         {!isMine && message.senderName && (
           <p className="text-[10px] mb-1 ml-1" style={{ color: "var(--mq-accent)" }}>
@@ -95,8 +95,10 @@ export default function MessageBubble({ message, currentUserId }: MessageBubbleP
           className="rounded-2xl px-4 py-2.5 relative"
           style={{
             backgroundColor: isMine ? "var(--mq-accent)" : "var(--mq-card)",
-            borderBottomRightRadius: isMine ? "4px" : undefined,
-            borderBottomLeftRadius: isMine ? undefined : "4px",
+            borderBottomRightRadius: isMine ? "6px" : undefined,
+            borderBottomLeftRadius: isMine ? undefined : "6px",
+            borderTopRightRadius: isMine ? "6px" : undefined,
+            borderTopLeftRadius: isMine ? undefined : "6px",
             border: isMine ? "none" : "1px solid var(--mq-border)",
           }}
         >

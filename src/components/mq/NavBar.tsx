@@ -27,7 +27,7 @@ export default function NavBar() {
         borderBottom: "1px solid rgba(255,255,255,0.08)",
       }}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 cursor-pointer" onClick={() => setView("main")}>
         <div className="w-8 h-8 rounded-lg overflow-hidden" style={{ boxShadow: "0 0 12px var(--mq-glow)" }}>
           <img src="/favicon.ico" alt="mq" className="w-full h-full object-cover" />
         </div>

@@ -164,7 +164,7 @@ export default function PlayerBar() {
     };
   }, []);
 
-  // ── Decorative Visualization — ambient aurora, not tied to audio ──────────────
+  // ── Decorative Visualization — composite sinusoidal waves, not tied to audio ──────────────
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -172,29 +172,21 @@ export default function PlayerBar() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Aurora blobs — soft flowing colored orbs
-    const blobCount = 5;
-    const blobs = Array.from({ length: blobCount }, (_, i) => ({
-      x: 0.15 + Math.random() * 0.7,
-      y: 0.2 + Math.random() * 0.6,
-      radius: 30 + Math.random() * 50,
-      phase: Math.random() * Math.PI * 2,
-      speedX: 0.05 + Math.random() * 0.1,
-      speedY: 0.03 + Math.random() * 0.08,
-      drift: 0.3 + Math.random() * 0.5,
-    }));
+    // Wave configs: segments, speed, amplitude, phase, yOff, alpha, lineWidth
+    const waves = [
+      { segs: 40, speed: 0.6, amp: 0.35, phase: 0, yOff: 0.5, alpha: 0.5, lw: 1.5 },
+      { segs: 55, speed: 0.9, amp: 0.25, phase: 1.2, yOff: 0.5, alpha: 0.3, lw: 1.0 },
+      { segs: 30, speed: 0.4, amp: 0.45, phase: 2.5, yOff: 0.5, alpha: 0.2, lw: 1.0 },
+      { segs: 70, speed: 1.2, amp: 0.15, phase: 3.8, yOff: 0.5, alpha: 0.15, lw: 0.8 },
+    ];
 
-    // Floating particles — tiny sparkles
-    const particleCount = 25;
-    const particles = Array.from({ length: particleCount }, () => ({
-      x: Math.random(),
-      y: Math.random(),
-      vx: (Math.random() - 0.5) * 0.15,
-      vy: (Math.random() - 0.5) * 0.1,
-      size: 0.5 + Math.random() * 1.5,
+    // Sparkle particles on wave paths
+    const particles = Array.from({ length: 20 }, () => ({
+      waveIdx: Math.floor(Math.random() * waves.length),
+      xFrac: Math.random(),
+      size: 1 + Math.random() * 2,
       phase: Math.random() * Math.PI * 2,
-      speed: 0.3 + Math.random() * 1.0,
-      twinkle: 0.5 + Math.random() * 2.0,
+      twinkle: 0.8 + Math.random() * 2.0,
     }));
 
     const draw = () => {
@@ -221,56 +213,77 @@ export default function PlayerBar() {
 
       const t = performance.now() / 1000;
 
-      // ── Layer 1: Aurora blobs — soft flowing gradient orbs ──
-      for (const blob of blobs) {
-        // Smooth Lissajous-like drift
-        const bx = blob.x + Math.sin(t * blob.speedX + blob.phase) * blob.drift * 0.3;
-        const by = blob.y + Math.cos(t * blob.speedY + blob.phase * 1.3) * blob.drift * 0.2;
-        const px = bx * displayWidth;
-        const py = by * displayHeight;
-        const breathe = 0.8 + 0.2 * Math.sin(t * 0.5 + blob.phase);
-        const radius = blob.radius * breathe;
+      // Compute and render each wave
+      for (const wave of waves) {
+        const points: { x: number; y: number }[] = [];
+        for (let i = 0; i < wave.segs; i++) {
+          const x = (i / (wave.segs - 1)) * displayWidth;
+          const xn = i / (wave.segs - 1); // normalized 0..1
+          const yNorm = 0.6 * Math.sin(t * wave.speed + wave.phase + 0.7 * xn * Math.PI * 2)
+            + 0.3 * Math.sin(t * wave.speed * 1.7 + 0.5 * wave.phase + 1.3 * xn * Math.PI * 2)
+            + 0.1 * Math.cos(t * wave.speed * 0.5 + 2.1 * xn * Math.PI * 2);
+          const y = wave.yOff * displayHeight - yNorm * wave.amp * displayHeight;
+          points.push({ x, y });
+        }
 
-        const grad = ctx.createRadialGradient(px, py, 0, px, py, radius);
-        grad.addColorStop(0, `rgba(${r},${g},${b},0.08)`);
-        grad.addColorStop(0.4, `rgba(${r},${g},${b},0.04)`);
-        grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+        // Glow stroke (wider, semi-transparent)
         ctx.beginPath();
-        ctx.arc(px, py, radius, 0, Math.PI * 2);
-        ctx.fillStyle = grad;
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i++) {
+          ctx.lineTo(points[i].x, points[i].y);
+        }
+        ctx.strokeStyle = `rgba(${r},${g},${b},${wave.alpha * 0.3})`;
+        ctx.lineWidth = wave.lw + 4;
+        ctx.lineJoin = "bevel";
+        ctx.lineCap = "round";
+        ctx.stroke();
+
+        // Main stroke
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i++) {
+          ctx.lineTo(points[i].x, points[i].y);
+        }
+        ctx.strokeStyle = `rgba(${r},${g},${b},${wave.alpha})`;
+        ctx.lineWidth = wave.lw;
+        ctx.lineJoin = "bevel";
+        ctx.lineCap = "round";
+        ctx.stroke();
+
+        // Gradient fill below wave
+        const gradient = ctx.createLinearGradient(0, wave.yOff * displayHeight - wave.amp * displayHeight, 0, displayHeight);
+        gradient.addColorStop(0, `rgba(${r},${g},${b},${wave.alpha * 0.12})`);
+        gradient.addColorStop(1, `rgba(${r},${g},${b},0)`);
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i++) {
+          ctx.lineTo(points[i].x, points[i].y);
+        }
+        ctx.lineTo(displayWidth, displayHeight);
+        ctx.lineTo(0, displayHeight);
+        ctx.closePath();
+        ctx.fillStyle = gradient;
         ctx.fill();
       }
 
-      // ── Layer 2: Twinkling particles ──
+      // Sparkle particles placed on wave paths
       for (const p of particles) {
-        p.x += p.vx * 0.001;
-        p.y += p.vy * 0.001;
-        if (p.x < 0) p.x = 1;
-        if (p.x > 1) p.x = 0;
-        if (p.y < 0) p.y = 1;
-        if (p.y > 1) p.y = 0;
-
-        const px = p.x * displayWidth;
-        const py = p.y * displayHeight;
-        const twinkle = 0.3 + 0.7 * Math.pow(Math.sin(t * p.twinkle + p.phase), 2);
-        const alpha = twinkle * 0.4;
-        const size = p.size * twinkle;
+        const wave = waves[p.waveIdx];
+        const xn = p.xFrac;
+        const yNorm = 0.6 * Math.sin(t * wave.speed + wave.phase + 0.7 * xn * Math.PI * 2)
+          + 0.3 * Math.sin(t * wave.speed * 1.7 + 0.5 * wave.phase + 1.3 * xn * Math.PI * 2)
+          + 0.1 * Math.cos(t * wave.speed * 0.5 + 2.1 * xn * Math.PI * 2);
+        const px = xn * displayWidth;
+        const py = wave.yOff * displayHeight - yNorm * wave.amp * displayHeight;
+        const tw = 0.3 + 0.7 * Math.pow(Math.sin(t * p.twinkle + p.phase), 2);
+        const alpha = tw * (0.3 + wave.alpha * 0.5);
+        const size = p.size * (0.5 + tw * 0.5);
 
         ctx.beginPath();
         ctx.arc(px, py, size, 0, Math.PI * 2);
         ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
         ctx.fill();
       }
-
-      // ── Layer 3: Horizontal light streak — thin subtle glow line ──
-      const streakY = displayHeight * (0.45 + 0.1 * Math.sin(t * 0.3));
-      const streakAlpha = 0.03 + 0.02 * Math.sin(t * 0.6);
-      const streakGrad = ctx.createLinearGradient(0, streakY - 8, 0, streakY + 8);
-      streakGrad.addColorStop(0, `rgba(${r},${g},${b},0)`);
-      streakGrad.addColorStop(0.5, `rgba(${r},${g},${b},${streakAlpha})`);
-      streakGrad.addColorStop(1, `rgba(${r},${g},${b},0)`);
-      ctx.fillStyle = streakGrad;
-      ctx.fillRect(displayWidth * 0.1, streakY - 8, displayWidth * 0.8, 16);
     };
 
     draw();
@@ -307,10 +320,8 @@ export default function PlayerBar() {
         retryCountRef.current = 0;
 
         const audioEl = getAudioElement();
+        // DON'T clear src — just pause and set new source directly to keep notification alive
         audioEl.pause();
-        // Properly clear source to trigger clean load events
-        audioEl.removeAttribute("src");
-        audioEl.load();
 
         if (cancelled) return;
 
@@ -404,7 +415,10 @@ export default function PlayerBar() {
       artwork: currentTrack.cover ? [{ src: currentTrack.cover, sizes: "512x512", type: "image/jpeg" }] : [],
     });
 
+    // Set handlers once — they use store.getState() dynamically so they always work
+    // Don't null them in cleanup to keep notification controls alive during track switches
     navigator.mediaSession.setActionHandler("play", () => {
+      resumeAudioContext();
       const st = useAppStore.getState();
       if (!st.isPlaying) st.togglePlay();
     });
@@ -413,9 +427,11 @@ export default function PlayerBar() {
       if (st.isPlaying) st.togglePlay();
     });
     navigator.mediaSession.setActionHandler("previoustrack", () => {
+      resumeAudioContext();
       useAppStore.getState().prevTrack();
     });
     navigator.mediaSession.setActionHandler("nexttrack", () => {
+      resumeAudioContext();
       useAppStore.getState().nextTrack();
     });
     navigator.mediaSession.setActionHandler("seekto", (details) => {
@@ -440,16 +456,7 @@ export default function PlayerBar() {
       if (st.isPlaying) st.togglePlay();
     });
 
-    return () => {
-      navigator.mediaSession.setActionHandler("play", null);
-      navigator.mediaSession.setActionHandler("pause", null);
-      navigator.mediaSession.setActionHandler("previoustrack", null);
-      navigator.mediaSession.setActionHandler("nexttrack", null);
-      navigator.mediaSession.setActionHandler("seekto", null);
-      navigator.mediaSession.setActionHandler("seekbackward", null);
-      navigator.mediaSession.setActionHandler("seekforward", null);
-      navigator.mediaSession.setActionHandler("stop", null);
-    };
+    // No cleanup — handlers stay active for background playback
   }, [currentTrack?.id]);
 
   // ── Update MediaSession playback state & position for notifications ──
@@ -747,11 +754,11 @@ export default function PlayerBar() {
         </div>
       </div>
 
-      {/* Audio visualization waveform — at the BOTTOM on PC, hidden on mobile */}
+      {/* Audio visualization waveform — visible on all screen sizes */}
       <canvas
         ref={canvasRef}
-        className="w-full pointer-events-none block hidden lg:block"
-        style={{ height: 40, opacity: isPlaying ? 0.6 : 0.1, transition: "opacity 0.3s", minHeight: 40 }}
+        className="w-full pointer-events-none block"
+        style={{ height: 28, opacity: isPlaying ? 0.7 : 0.1, transition: "opacity 0.3s", minHeight: 28 }}
       />
 
     </motion.div>

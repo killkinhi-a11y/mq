@@ -114,3 +114,28 @@ Stage Summary:
 - Project now fully matches user's local code (build v44)
 - Visualization is aurora blobs (decorative, not audio-reactive) — user's preferred style
 - Server running stable: / 307, /play 200, all API routes working
+
+---
+Task ID: 3
+Agent: Main
+Task: Multiple UI improvements: visualization, avatars, logo click, MediaSession, messenger
+
+Work Log:
+- Replaced aurora blob visualization with composite sinusoidal waves in PlayerBar (4 waves) and FullTrackView (5 waves)
+- Waves use composite sin/cos formula with glow stroke, main stroke, gradient fill, and sparkle particles
+- Made visualization visible on mobile (was hidden lg:block before)
+- Replaced picsum.photos avatar URLs with ui-avatars.com (always works, colorful initials)
+- Added onClick on NavBar logo to navigate to main page
+- Fixed MediaSession: handlers no longer nulled on cleanup (stays active for background playback)
+- Added resumeAudioContext() to nexttrack/previoustrack handlers
+- Fixed track switching: removed src clearing (removeAttribute("src") + load()) to keep notification visible
+- Improved messenger bubble symmetry: consistent border-radius, max-width 65% on desktop
+
+Stage Summary:
+- Visualization matches reference: sinusoidal waves + particles, decorative (not audio-reactive)
+- Mobile shows visualization canvas (28px height)
+- Avatars load reliably via ui-avatars.com API
+- Logo click navigates home
+- Background track switching works with screen off
+- Notification stays during track changes
+- Messenger bubbles more symmetric
