@@ -17,5 +17,5 @@ fi
 rm -rf .next/standalone/.next/cache/fetch-cache 2>/dev/null
 
 echo "Starting MQ Player..."
-exec HOSTNAME=:: NODE_ENV=production NODE_OPTIONS="--max-old-space-size=2048" PORT=3000 \
+exec HOSTNAME=:: NODE_ENV=production NODE_OPTIONS="--max-old-space-size=512" PORT=3000 \
   node .next/standalone/server.js
