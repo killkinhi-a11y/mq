@@ -3,7 +3,7 @@ import { searchSCTracks } from '@/lib/soundcloud';
 
 export async function POST(req: NextRequest) {
   try {
-    const { url } = await req.json();
+    const { url, vkToken } = await req.json();
     if (!url || typeof url !== 'string') {
       return NextResponse.json({ error: 'URL не указана' }, { status: 400 });
     }
@@ -21,12 +21,22 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // For VK, require a token
+    if (platform === 'ВКонтакте' && !vkToken) {
+      return NextResponse.json({
+        error: 'VK требует API-токен для доступа к плейлистам.',
+        hint: 'Как получить токен:\n1. Откройте https://vk.com/dev/audio.getPlaylistById\n2. Нажмите «Попробовать» (Try it)\n3. Скопируйте access_token из адресной строки\n4. Вставьте токен в поле «VK токен» ниже',
+        tracks: [],
+        needVkToken: true,
+      });
+    }
+
     // Try to extract tracks
     let playlistName = '';
     let trackNames: { title: string; artist: string }[] = [];
 
     try {
-      const result = await extractTracks(normalizedUrl, platform);
+      const result = await extractTracks(normalizedUrl, platform, vkToken);
       playlistName = result.name;
       trackNames = result.tracks;
     } catch (e) {
@@ -75,8 +85,8 @@ export async function POST(req: NextRequest) {
     // Platform-specific fallback messages
     const fallbackMessages: Record<string, { error: string; hint: string }> = {
       'ВКонтакте': {
-        error: 'Не удалось загрузить треки из ВК по ссылке. VK требует авторизации для доступа к плейлистам.',
-        hint: 'Альтернатива: откройте плейлист в VK, выделите все треки → скопируйте → вставьте в «Импорт текстом».',
+        error: 'Не удалось загрузить треки из VK. Проверьте токен и попробуйте снова.',
+        hint: 'Убедитесь, что токен получен на странице https://vk.com/dev/audio.getPlaylistById и не истёк. Токены VK временные — обновите его и попробуйте снова.',
       },
       'Яндекс.Музыка': {
         error: 'Не удалось загрузить треки из Яндекс.Музыки.',
@@ -139,13 +149,13 @@ function detectPlatform(url: string): Platform | null {
   return null;
 }
 
-async function extractTracks(url: string, platform: Platform): Promise<{ name: string; tracks: { title: string; artist: string }[] }> {
+async function extractTracks(url: string, platform: Platform, vkToken?: string): Promise<{ name: string; tracks: { title: string; artist: string }[] }> {
   const name = '';
   const tracks: { title: string; artist: string }[] = [];
 
   switch (platform) {
     case 'ВКонтакте':
-      return await extractVK(url);
+      return await extractVK(url, vkToken);
     case 'Яндекс.Музыка':
       return await extractYandex(url);
     case 'SoundCloud':
@@ -172,93 +182,93 @@ async function fetchPage(url: string, timeout = 15000): Promise<string> {
 }
 
 // ── VK ───────────────────────────────────────────────────
-async function extractVK(url: string): Promise<{ name: string; tracks: { title: string; artist: string }[] }> {
+async function extractVK(url: string, vkToken?: string): Promise<{ name: string; tracks: { title: string; artist: string }[] }> {
   let playlistName = 'VK Плейлист';
   const tracks: { title: string; artist: string }[] = [];
 
+  // Parse VK playlist URL: https://vk.com/music/playlist/{owner_id}_{playlist_id}_{access_hash}
+  const urlMatch = url.match(/vk\.com\/music\/playlist\/(-?\d+)_(\d+)(?:_(\w+))?/) ||
+                   url.match(/vk\.com\/audio_playlist(-?\d+)_(\d+)_(\w+)/) ||
+                   url.match(/vk\.com\/audio\?act=audio_playlist(-?\d+)_(\d+)/);
+
+  if (!urlMatch) {
+    return { name: playlistName, tracks };
+  }
+
+  const ownerId = parseInt(urlMatch[1]);
+  const playlistId = parseInt(urlMatch[2]);
+  const accessHash = urlMatch[3] || '';
+
+  if (!vkToken) {
+    return { name: playlistName, tracks };
+  }
+
+  // Use VK API to get playlist
   try {
-    const html = await fetchPage(url);
-    if (!html) return { name: playlistName, tracks };
-
-    // Extract title
-    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/);
-    if (titleMatch) {
-      const t = titleMatch[1].replace(/ВКонтакте.*$/, '').replace(/\s*\|.*$/, '').trim();
-      if (t) playlistName = t;
+    const apiParams = new URLSearchParams({
+      owner_id: String(ownerId),
+      playlist_id: String(playlistId),
+      access_token: vkToken,
+      v: '5.194',
+    });
+    if (accessHash) {
+      apiParams.set('access_hash', accessHash);
     }
 
-    // Pattern 1: data-audio attribute (older VK format)
-    const dataAudio = html.match(/data-audio="([^"]+)"/);
-    if (dataAudio) {
-      const decoded = dataAudio[1]
-        .replace(/&amp;/g, '&')
-        .replace(/&quot;/g, '"')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>');
-      const entries = decoded.split(',');
-      for (const entry of entries.slice(0, 100)) {
-        const parts = entry.split('|||');
-        if (parts.length >= 3) {
-          const artist = (parts[4] || parts[0] || '').trim();
-          const title = (parts[3] || parts[1] || '').trim();
-          if (title && artist) tracks.push({ title, artist });
-        }
+    const apiRes = await fetch(`https://api.vk.com/method/audio.getPlaylistById?${apiParams}`, {
+      signal: AbortSignal.timeout(15000),
+    });
+
+    const apiData = await apiRes.json();
+
+    if (apiData.error) {
+      console.error('VK API error:', apiData.error);
+      throw new Error(apiData.error.error_msg || 'VK API error');
+    }
+
+    const response = apiData.response;
+    if (!response) {
+      return { name: playlistName, tracks };
+    }
+
+    // Extract playlist name
+    const playlist = response.playlist || response;
+    if (playlist.title) {
+      playlistName = playlist.title;
+    }
+
+    // Extract tracks from the response
+    // VK API returns tracks in different formats depending on the version
+    const items = response.items || response.tracks || playlist.tracks || [];
+    const trackArray = Array.isArray(items) ? items : [];
+
+    for (const item of trackArray.slice(0, 50)) {
+      const title = item.title || item.name || '';
+      const artist = item.artist || (item.main_artists && item.main_artists[0]?.name) || '';
+      if (title && artist) {
+        tracks.push({ title: title.trim(), artist: artist.trim() });
       }
     }
 
-    // Pattern 2: JSON performer/title pairs
+    // If no items field, try to find tracks in nested structures
     if (tracks.length === 0) {
-      const trackPattern = /"performer"\s*:\s*"([^"]+)"[^}]*?"title"\s*:\s*"([^"]+)"/g;
-      let m;
-      while ((m = trackPattern.exec(html)) !== null) {
-        tracks.push({ artist: m[1].trim(), title: m[2].trim() });
-      }
-    }
-
-    // Pattern 3: Look for audio object patterns
-    if (tracks.length === 0) {
-      // VK often stores audio data in JSON within script tags
-      const scriptBlocks = html.match(/<script[^>]*>([\s\S]*?)<\/script>/g) || [];
-      for (const block of scriptBlocks) {
-        if (block.includes('"audio"') || block.includes('"performer"')) {
-          const performerPattern = /"performer"\s*:\s*"([^"]+)"/g;
-          const titlePattern = /"title"\s*:\s*"([^"]+)"/g;
-          const performers: string[] = [];
-          const titles: string[] = [];
-          let pm;
-          while ((pm = performerPattern.exec(block)) !== null) performers.push(pm[1]);
-          performerPattern.lastIndex = 0;
-          while ((pm = titlePattern.exec(block)) !== null) titles.push(pm[1]);
-          titlePattern.lastIndex = 0;
-          for (let i = 0; i < Math.min(performers.length, titles.length); i++) {
-            if (titles[i] && performers[i]) {
-              tracks.push({ title: titles[i].trim(), artist: performers[i].trim() });
-            }
-          }
-          if (tracks.length > 0) break;
-        }
-      }
-    }
-
-    // Pattern 4: Try to find "artist — title" patterns in meta tags
-    if (tracks.length === 0) {
-      const descMatch = html.match(/<meta[^>]*content="([^"]+)"/i);
-      if (descMatch) {
-        const content = descMatch[1];
-        const dashPattern = /([^-—–]+?)\s*[—–-]\s*([^,.\n]+)/g;
-        let dm;
-        while ((dm = dashPattern.exec(content)) !== null) {
-          const a = dm[1].trim();
-          const t = dm[2].trim();
-          if (a.length > 1 && t.length > 1 && a.length < 60 && t.length < 80) {
-            tracks.push({ artist: a, title: t });
+      const allTracks = findTracksInObject(response, 'tracks') || findTracksInObject(response, 'items');
+      if (Array.isArray(allTracks)) {
+        for (const item of allTracks.slice(0, 50)) {
+          if (typeof item !== 'object' || !item) continue;
+          const title = item.title || item.name || '';
+          const artist = item.artist || '';
+          if (title && artist) {
+            tracks.push({ title: String(title).trim(), artist: String(artist).trim() });
           }
         }
       }
     }
 
-  } catch (e) {
-    console.error('VK extraction error:', e);
+  } catch (e: any) {
+    console.error('VK API extraction error:', e);
+    // Return error info so the frontend can show it
+    throw new Error(e.message || 'Не удалось загрузить плейлист из VK');
   }
 
   return { name: playlistName, tracks };

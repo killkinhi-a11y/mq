@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { type Track } from "@/lib/musicApi";
 import {
   Plus, Trash2, Play, Music, ListMusic, ChevronRight,
-  Edit3, X, Check, Disc3, Clock, Heart, Upload, Download, Link, Loader2, AlertCircle, Globe
+  Edit3, X, Check, Disc3, Clock, Heart, Upload, Download, Link, Loader2, AlertCircle
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import TrackCard from "./TrackCard";
@@ -34,6 +34,8 @@ export default function PlaylistView() {
   const { toast } = useToast();
   const [importProgress, setImportProgress] = useState('');
   const [importHint, setImportHint] = useState('');
+  const [vkToken, setVkToken] = useState('');
+  const [showVkToken, setShowVkToken] = useState(false);
 
   const selectedPlaylist = playlists.find((p) => p.id === selectedPlaylistId);
 
@@ -68,7 +70,7 @@ export default function PlaylistView() {
       const res = await fetch('/api/music/import-playlist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: importUrl.trim() }),
+        body: JSON.stringify({ url: importUrl.trim(), vkToken: vkToken.trim() || undefined }),
       });
       const data = await res.json();
 
@@ -76,6 +78,9 @@ export default function PlaylistView() {
         setImportError(data.error);
         if (data.hint) {
           setImportHint(data.hint);
+        }
+        if (data.needVkToken) {
+          setShowVkToken(true);
         }
         return;
       }
@@ -136,6 +141,8 @@ export default function PlaylistView() {
       setShowImport(false);
       setImportUrl('');
       setImportProgress('');
+      setVkToken('');
+      setShowVkToken(false);
 
       // Show toast with result
       toast({
@@ -265,17 +272,6 @@ export default function PlaylistView() {
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.9 }}
-              onClick={() => setView("public-playlists")}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm"
-              style={{ backgroundColor: "var(--mq-card)", color: "var(--mq-text)", border: "1px solid var(--mq-border)" }}
-              title="Каталог публичных плейлистов"
-            >
-              <Globe className="w-4 h-4" />
-              Каталог
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.9 }}
               onClick={() => setShowCreate(true)}
               className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm"
               style={{ backgroundColor: "var(--mq-accent)", color: "var(--mq-text)" }}
@@ -361,7 +357,7 @@ export default function PlaylistView() {
           >
             <div className="flex items-center justify-between">
               <h3 className="font-semibold" style={{ color: "var(--mq-text)" }}>Импорт плейлиста</h3>
-              <button onClick={() => { setShowImport(false); setImportError(""); setImportHint(""); }} style={{ color: "var(--mq-text-muted)" }}>
+              <button onClick={() => { setShowImport(false); setImportError(""); setImportHint(""); setVkToken(""); setShowVkToken(false); }} style={{ color: "var(--mq-text-muted)" }}>
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -500,6 +496,35 @@ export default function PlaylistView() {
                     {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                   </motion.button>
                 </div>
+                {/* VK Token input (shown when needed or when URL is VK) */}
+                {(showVkToken || /vk\.com/i.test(importUrl)) && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-medium" style={{ color: "var(--mq-text)" }}>VK API-токен</label>
+                      <a
+                        href="https://vk.com/dev/audio.getPlaylistById"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[10px] underline"
+                        style={{ color: "var(--mq-accent)" }}
+                      >
+                        Как получить?
+                      </a>
+                    </div>
+                    <input
+                      type={showVkToken ? "text" : "password"}
+                      value={vkToken}
+                      onChange={(e) => { setVkToken(e.target.value); setImportError(""); setImportHint(""); }}
+                      placeholder="vk1.a.abc..."
+                      className="w-full rounded-lg px-3 py-2 text-xs font-mono"
+                      style={{ backgroundColor: "var(--mq-input-bg)", border: "1px solid var(--mq-border)", color: "var(--mq-text)" }}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && !importing && importUrl.trim()) triggerUrlImport(); }}
+                    />
+                    <p className="text-[10px] leading-relaxed" style={{ color: "var(--mq-text-muted)" }}>
+                      Откройте ссылку «Как получить?» → нажмите «Попробовать» → скопируйте access_token из адресной строки (параметр after /access_token=)
+                    </p>
+                  </div>
+                )}
                 {importing && importProgress && (
                   <div className="flex items-center gap-2 py-1">
                     <Loader2 className="w-3 h-3 animate-spin" style={{ color: "var(--mq-accent)" }} />
