@@ -1,6 +1,9 @@
 "use client";
 
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
+
+const MAX_AUTO_RELOADS = 1;
+const RELOAD_KEY = "mq-error-reload-count";
 
 export default function ErrorBoundary({
   error,
@@ -10,64 +13,41 @@ export default function ErrorBoundary({
   reset: () => void;
 }) {
   const errorMsg = error?.message || "";
+  const didReload = useRef(false);
 
   useEffect(() => {
+    if (didReload.current) return;
+
     console.error("[MQ Error]", errorMsg);
 
-    // Auto-detect stale-data errors and force-clear everything + reload
-    // Note: do NOT include "hydration" — React auto-recovers from hydration mismatches.
-    // Catching hydration here causes an infinite reload loop.
+    // Only auto-recover for very specific stale-data / cache-bust scenarios.
+    // These patterns indicate corrupted persisted state, NOT runtime bugs.
     const stalePatterns = [
-      "is not defined",
-      "is not a function",
-      "Cannot read propert",
-      "localStorage",
-      "482",  // React shellSuspendCounter — recoverable via reload
+      "Failed to execute 'getItem' on 'Storage'", // Storage blocked/corrupted
+      "Parsing failed",                           // Zustand JSON parse error
+      "shellSuspendCounter",                      // React internal — recoverable
     ];
     const isStaleError = stalePatterns.some((p) => errorMsg.includes(p));
 
-    if (isStaleError) {
-      console.warn("[MQ Error] Detected stale-data error, auto-clearing...");
-      // Clear all mq-related storage
-      try {
-        const keysToRemove: string[] = [];
-        for (let i = 0; i < localStorage.length; i++) {
-          const k = localStorage.key(i);
-          if (k && (k.includes("mq") || k.includes("MQ") || k.includes("zustand"))) {
-            keysToRemove.push(k);
-          }
-        }
-        keysToRemove.forEach((k) => localStorage.removeItem(k));
-      } catch {}
-      try { sessionStorage.clear(); } catch {}
-      // Unregister service workers
-      if (navigator.serviceWorker) {
-        navigator.serviceWorker.getRegistrations().then((regs) => {
-          regs.forEach((r) => r.unregister());
-        });
+    if (!isStaleError) return; // For all other errors, just show the UI
+
+    // Check retry limit to prevent infinite reload loop
+    try {
+      const count = parseInt(sessionStorage.getItem(RELOAD_KEY) || "0");
+      if (count >= MAX_AUTO_RELOADS) {
+        sessionStorage.removeItem(RELOAD_KEY);
+        console.warn("[MQ Error] Max auto-reloads reached, showing error UI");
+        return; // Stop the loop
       }
-      // Clear Cache API
-      if (window.caches) {
-        window.caches.keys().then((ks) => {
-          Promise.all(ks.map((k) => window.caches.delete(k))).then(() => {
-            // Force reload with cache-bust after clearing caches
-            const bust = Date.now();
-            window.location.replace("/play?_r=" + bust);
-          });
-        });
-        return;
-      }
-      // No Cache API — reload directly
-      window.location.replace("/play?_r=" + Date.now());
+      sessionStorage.setItem(RELOAD_KEY, String(count + 1));
+    } catch {
+      return; // sessionStorage unavailable — don't risk a loop
     }
-  }, [errorMsg]);
 
-  const handleReset = useCallback(() => {
-    reset();
-  }, [reset]);
+    didReload.current = true;
+    console.warn("[MQ Error] Detected stale-data error, auto-clearing...");
 
-  const handleFullReset = useCallback(() => {
-    // Clear all mq-related storage
+    // Clear mq-related storage
     try {
       const keysToRemove: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
@@ -78,6 +58,44 @@ export default function ErrorBoundary({
       }
       keysToRemove.forEach((k) => localStorage.removeItem(k));
     } catch {}
+
+    // Unregister service workers
+    if (navigator.serviceWorker) {
+      navigator.serviceWorker.getRegistrations().then((regs) => {
+        regs.forEach((r) => r.unregister());
+      });
+    }
+
+    // Clear Cache API then reload
+    if (window.caches) {
+      window.caches.keys().then((ks) => {
+        Promise.all(ks.map((k) => window.caches.delete(k))).then(() => {
+          window.location.replace("/play?_r=" + Date.now());
+        });
+      });
+      return;
+    }
+
+    window.location.replace("/play?_r=" + Date.now());
+  }, [errorMsg]);
+
+  const handleReset = useCallback(() => {
+    try { sessionStorage.removeItem(RELOAD_KEY); } catch {}
+    reset();
+  }, [reset]);
+
+  const handleFullReset = useCallback(() => {
+    try {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && (k.includes("mq") || k.includes("MQ") || k.includes("zustand"))) {
+          keysToRemove.push(k);
+        }
+      }
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+    } catch {}
+    try { sessionStorage.removeItem(RELOAD_KEY); } catch {}
     window.location.replace("/play?_r=" + Date.now());
   }, []);
 
