@@ -11,6 +11,7 @@ import MessengerView from "@/components/mq/MessengerView";
 import SettingsView from "@/components/mq/SettingsView";
 import ProfileView from "@/components/mq/ProfileView";
 import PlaylistView from "@/components/mq/PlaylistView";
+import PublicPlaylistsView from "@/components/mq/PublicPlaylistsView";
 import HistoryView from "@/components/mq/HistoryView";
 import StoriesView from "@/components/mq/StoriesView";
 import PlayerBar from "@/components/mq/PlayerBar";
@@ -141,6 +142,8 @@ export default function Home() {
         return <ProfileView />;
       case "playlists":
         return <PlaylistView />;
+      case "public-playlists":
+        return <PublicPlaylistsView />;
       case "history":
         return <HistoryView />;
       case "stories":

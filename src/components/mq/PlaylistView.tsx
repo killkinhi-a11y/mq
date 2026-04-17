@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { type Track } from "@/lib/musicApi";
 import {
   Plus, Trash2, Play, Music, ListMusic, ChevronRight,
-  Edit3, X, Check, Disc3, Clock, Heart, Upload, Download, Link, Loader2, AlertCircle
+  Edit3, X, Check, Disc3, Clock, Heart, Upload, Download, Link, Loader2, AlertCircle, Globe
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import TrackCard from "./TrackCard";
@@ -16,7 +16,7 @@ export default function PlaylistView() {
     playlists, selectedPlaylistId, setSelectedPlaylistId,
     createPlaylist, deletePlaylist, renamePlaylist,
     removeFromPlaylist, animationsEnabled, playTrack, likedTrackIds,
-    addToPlaylist,
+    addToPlaylist, setView,
   } = useAppStore();
 
   const [showCreate, setShowCreate] = useState(false);
@@ -261,26 +261,39 @@ export default function PlaylistView() {
           <h1 className="text-2xl font-bold" style={{ color: "var(--mq-text)" }}>
             Плейлисты
           </h1>
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={() => setShowCreate(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm"
-            style={{ backgroundColor: "var(--mq-accent)", color: "var(--mq-text)" }}
-          >
-            <Plus className="w-4 h-4" />
-            Создать
-          </motion.button>
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={() => setShowImport(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm"
-            style={{ backgroundColor: "var(--mq-card)", color: "var(--mq-text)", border: "1px solid var(--mq-border)" }}
-          >
-            <Download className="w-4 h-4" />
-            Импорт
-          </motion.button>
+          <div className="flex items-center gap-2">
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={() => setView("public-playlists")}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm"
+              style={{ backgroundColor: "var(--mq-card)", color: "var(--mq-text)", border: "1px solid var(--mq-border)" }}
+              title="Каталог публичных плейлистов"
+            >
+              <Globe className="w-4 h-4" />
+              Каталог
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={() => setShowCreate(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm"
+              style={{ backgroundColor: "var(--mq-accent)", color: "var(--mq-text)" }}
+            >
+              <Plus className="w-4 h-4" />
+              Создать
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={() => setShowImport(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm"
+              style={{ backgroundColor: "var(--mq-card)", color: "var(--mq-text)", border: "1px solid var(--mq-border)" }}
+            >
+              <Download className="w-4 h-4" />
+              Импорт
+            </motion.button>
+          </div>
         </div>
         <p className="text-sm" style={{ color: "var(--mq-text-muted)" }}>
           {playlists.length} плейлистов

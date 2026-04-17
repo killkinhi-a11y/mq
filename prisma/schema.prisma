@@ -23,6 +23,8 @@ model User {
   stories                Story[]  @relation("UserStories")
   storyLikes             StoryLike[] @relation("UserStoryLikes")
   storyComments          StoryComment[] @relation("UserStoryComments")
+  playlists              Playlist[] @relation("UserPlaylists")
+  playlistLikes          PlaylistLike[] @relation("UserPlaylistLikes")
 }
 
 model Message {
@@ -82,4 +84,31 @@ model StoryComment {
   createdAt DateTime @default(now())
   story     Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
   user      User     @relation("UserStoryComments", fields: [userId], references: [id])
+}
+
+model Playlist {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  description String   @default("")
+  cover       String   @default("")
+  isPublic    Boolean  @default(true)
+  tags        String   @default("")     // comma-separated: "pop,rock,chill"
+  tracksJson  String   @default("[]")   // JSON array of Track objects
+  playCount   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation("UserPlaylists", fields: [userId], references: [id], onDelete: Cascade)
+  likes       PlaylistLike[]
+}
+
+model PlaylistLike {
+  id         String   @id @default(cuid())
+  playlistId String
+  userId     String
+  createdAt  DateTime @default(now())
+  playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  user       User     @relation("UserPlaylistLikes", fields: [userId], references: [id])
+
+  @@unique([playlistId, userId])
 }

@@ -27,7 +27,7 @@ if (typeof window !== "undefined") {
   }
 }
 
-export type ViewType = "auth" | "main" | "search" | "messenger" | "settings" | "profile" | "playlists" | "history" | "stories";
+export type ViewType = "auth" | "main" | "search" | "messenger" | "settings" | "profile" | "playlists" | "public-playlists" | "history" | "stories";
 export type AuthStep = "login" | "register" | "confirm" | "confirmed";
 
 export interface UserPlaylist {
@@ -37,6 +37,25 @@ export interface UserPlaylist {
   cover: string;
   tracks: Track[];
   createdAt: number;
+}
+
+export interface PublicPlaylist {
+  id: string;
+  userId: string;
+  username: string;
+  name: string;
+  description: string;
+  cover: string;
+  isPublic: boolean;
+  tags: string[];
+  tracks: Track[];
+  trackCount: number;
+  likeCount: number;
+  playCount: number;
+  isLiked: boolean;
+  score?: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface HistoryEntry {
@@ -194,6 +213,13 @@ interface AppState {
   removeFromPlaylist: (playlistId: string, trackId: string) => void;
   setSelectedPlaylistId: (id: string | null) => void;
 
+  // Public playlist actions
+  publishPlaylist: (playlistId: string, tags?: string[]) => Promise<boolean>;
+  unpublishPlaylist: (playlistId: string) => Promise<boolean>;
+  togglePlaylistLike: (playlistId: string) => Promise<boolean>;
+  fetchPublicPlaylists: (params?: { search?: string; sort?: string; page?: number }) => Promise<void>;
+  fetchPlaylistRecommendations: (likedTags?: string[], likedArtists?: string[]) => Promise<void>;
+
   // Liquid Glass Mobile action
   setLiquidGlassMobile: (enabled: boolean) => void;
 
@@ -251,8 +277,26 @@ const initialState = {
   showLyricsRequested: false,
   playlists: [] as UserPlaylist[],
   selectedPlaylistId: null as string | null,
+
+  // Public playlists
+  publicPlaylists: [] as PublicPlaylist[],
+  recommendedPlaylists: [] as PublicPlaylist[],
+  publicPlaylistsLoading: boolean,
+  publicPlaylistsPage: number,
+  publicPlaylistsTotal: number,
+  publicPlaylistsSearch: string,
+  publicPlaylistsSort: string,
+  recommendedPlaylistsLoading: boolean,
   liquidGlassMobile: false as boolean,
   history: [] as HistoryEntry[],
+  publicPlaylists: [] as PublicPlaylist[],
+  recommendedPlaylists: [] as PublicPlaylist[],
+  publicPlaylistsLoading: false,
+  publicPlaylistsPage: 1,
+  publicPlaylistsTotal: 0,
+  publicPlaylistsSearch: "",
+  publicPlaylistsSort: "popular",
+  recommendedPlaylistsLoading: false,
 };
 
 export const useAppStore = create<AppState>()(
@@ -579,6 +623,129 @@ export const useAppStore = create<AppState>()(
 
       setSelectedPlaylistId: (id) => set({ selectedPlaylistId: id }),
 
+      // ── Public playlist actions ──
+      publishPlaylist: async (playlistId, tags = []) => {
+        const { playlists, userId } = get();
+        const playlist = playlists.find((p) => p.id === playlistId);
+        if (!playlist || !userId) return false;
+        try {
+          const res = await fetch('/api/playlists', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId,
+              name: playlist.name,
+              description: playlist.description,
+              cover: playlist.cover,
+              isPublic: true,
+              tags,
+              tracks: playlist.tracks,
+            }),
+          });
+          return res.ok;
+        } catch { return false; }
+      },
+
+      unpublishPlaylist: async (playlistId) => {
+        const { userId } = get();
+        if (!userId) return false;
+        try {
+          const res = await fetch('/api/playlists', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: playlistId, userId, isPublic: false }),
+          });
+          if (res.ok) {
+            set((s) => ({ publicPlaylists: s.publicPlaylists.filter((p) => p.id !== playlistId) }));
+          }
+          return res.ok;
+        } catch { return false; }
+      },
+
+      togglePlaylistLike: async (playlistId) => {
+        const { userId } = get();
+        if (!userId) return false;
+        try {
+          const res = await fetch('/api/playlists/like', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ playlistId, userId }),
+          });
+          const data = await res.json();
+          if (res.ok) {
+            set((s) => ({
+              publicPlaylists: s.publicPlaylists.map((p) =>
+                p.id === playlistId ? { ...p, isLiked: data.liked, likeCount: data.liked ? p.likeCount + 1 : p.likeCount - 1 } : p
+              ),
+              recommendedPlaylists: s.recommendedPlaylists.map((p) =>
+                p.id === playlistId ? { ...p, isLiked: data.liked, likeCount: data.liked ? p.likeCount + 1 : p.likeCount - 1 } : p
+              ),
+            }));
+          }
+          return data.liked;
+        } catch { return false; }
+      },
+
+      fetchPublicPlaylists: async (params = {}) => {
+        const { userId } = get();
+        set({ publicPlaylistsLoading: true });
+        try {
+          const sp = new URLSearchParams({ userId: userId || '' });
+          if (params.search) sp.set('search', params.search);
+          if (params.sort) sp.set('sort', params.sort);
+          if (params.page) sp.set('page', String(params.page));
+          sp.set('limit', '20');
+          const res = await fetch(`/api/playlists?${sp}`);
+          if (res.ok) {
+            const data = await res.json();
+            set({
+              publicPlaylists: data.playlists || [],
+              publicPlaylistsTotal: data.total || 0,
+              publicPlaylistsLoading: false,
+            });
+          } else {
+            set({ publicPlaylistsLoading: false });
+          }
+        } catch {
+          set({ publicPlaylistsLoading: false });
+        }
+      },
+
+      fetchPlaylistRecommendations: async (likedTags = [], likedArtists = []) => {
+        const { userId, likedTracksData, history } = get();
+        set({ recommendedPlaylistsLoading: true });
+
+        // Build taste profile from store if not provided
+        let tags = likedTags;
+        let artists = likedArtists;
+        if (tags.length === 0 && artists.length === 0) {
+          const allTracks = [...likedTracksData, ...history.slice(0, 50).map((h) => h.track)];
+          const genreCount: Record<string, number> = {};
+          const artistCount: Record<string, number> = {};
+          for (const t of allTracks) {
+            if (t.genre) genreCount[t.genre] = (genreCount[t.genre] || 0) + 2;
+            if (t.artist) artistCount[t.artist] = (artistCount[t.artist] || 0) + 1;
+          }
+          tags = Object.entries(genreCount).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([g]) => g);
+          artists = Object.entries(artistCount).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([a]) => a);
+        }
+
+        try {
+          const sp = new URLSearchParams({ userId: userId || '', limit: '10' });
+          if (tags.length > 0) sp.set('likedTags', tags.join(','));
+          if (artists.length > 0) sp.set('likedArtists', artists.join(','));
+          const res = await fetch(`/api/playlists/recommendations?${sp}`);
+          if (res.ok) {
+            const data = await res.json();
+            set({ recommendedPlaylists: data.playlists || [], recommendedPlaylistsLoading: false });
+          } else {
+            set({ recommendedPlaylistsLoading: false });
+          }
+        } catch {
+          set({ recommendedPlaylistsLoading: false });
+        }
+      },
+
       // ── Liquid Glass Mobile ──
       setLiquidGlassMobile: (enabled) => set({ liquidGlassMobile: enabled }),
 
@@ -678,6 +845,14 @@ export const useAppStore = create<AppState>()(
           if (!Array.isArray(s.messages)) fixes.messages = [];
           if (!Array.isArray(s.contacts)) fixes.contacts = [];
           if (!Array.isArray(s.similarTracks)) fixes.similarTracks = [];
+          if (!Array.isArray(s.publicPlaylists)) fixes.publicPlaylists = [];
+          if (!Array.isArray(s.recommendedPlaylists)) fixes.recommendedPlaylists = [];
+          if (typeof s.publicPlaylistsLoading !== "boolean") fixes.publicPlaylistsLoading = false;
+          if (typeof s.recommendedPlaylistsLoading !== "boolean") fixes.recommendedPlaylistsLoading = false;
+          if (typeof s.publicPlaylistsPage !== "number") fixes.publicPlaylistsPage = 1;
+          if (typeof s.publicPlaylistsTotal !== "number") fixes.publicPlaylistsTotal = 0;
+          if (typeof s.publicPlaylistsSearch !== "string") fixes.publicPlaylistsSearch = "";
+          if (typeof s.publicPlaylistsSort !== "string") fixes.publicPlaylistsSort = "popular";
           if (typeof s.currentTheme !== "string" || !s.currentTheme) fixes.currentTheme = "default";
           if (typeof s.volume !== "number") fixes.volume = 70;
           if (typeof s.fontSize !== "number") fixes.fontSize = 16;
