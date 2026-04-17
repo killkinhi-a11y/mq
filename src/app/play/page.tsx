@@ -2,9 +2,32 @@
 
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
-// Defer ALL heavy imports to client-side only using lazy + dynamic check
-// The SSR version of this page renders ONLY a minimal splash screen.
-// All components are loaded client-side after hydration.
+// Static lazy imports — created ONCE at module level, not per-render
+const AuthView = lazy(() => import("@/components/mq/AuthView"));
+const MainView = lazy(() => import("@/components/mq/MainView"));
+const SearchView = lazy(() => import("@/components/mq/SearchView"));
+const MessengerView = lazy(() => import("@/components/mq/MessengerView"));
+const SettingsView = lazy(() => import("@/components/mq/SettingsView"));
+const ProfileView = lazy(() => import("@/components/mq/ProfileView"));
+const PlaylistView = lazy(() => import("@/components/mq/PlaylistView"));
+const PublicPlaylistsView = lazy(() => import("@/components/mq/PublicPlaylistsView"));
+const HistoryView = lazy(() => import("@/components/mq/HistoryView"));
+const StoriesView = lazy(() => import("@/components/mq/StoriesView"));
+const PlayerBar = lazy(() => import("@/components/mq/PlayerBar"));
+const FullTrackView = lazy(() => import("@/components/mq/FullTrackView"));
+const PiPPlayer = lazy(() => import("@/components/mq/PiPPlayer"));
+const NavBar = lazy(() => import("@/components/mq/NavBar"));
+const MobileNav = lazy(() => import("@/components/mq/MobileNav"));
+
+// Safe require — never throws, returns empty defaults if module unavailable
+let _framer: any = { motion: "div", AnimatePresence: ({ children }: any) => children };
+let _useAppStore: any = () => ({});
+let _themes: any = {};
+let _applyThemeToDOM: any = () => {};
+
+try { const m = require("framer-motion"); _framer = m; } catch {}
+try { const m = require("@/store/useAppStore"); _useAppStore = m.useAppStore; } catch {}
+try { const m = require("@/lib/themes"); _themes = m.themes; _applyThemeToDOM = m.applyThemeToDOM; } catch {}
 
 function useIsClient() {
   const [isClient, setIsClient] = useState(false);
@@ -12,28 +35,11 @@ function useIsClient() {
   return isClient;
 }
 
-// Client-only app shell - only imported when isClient is true
 function AppShell() {
-  // All heavy imports inside the client-only component
-  const { motion, AnimatePresence } = require("framer-motion");
-  const { useAppStore } = require("@/store/useAppStore");
-  const { themes, applyThemeToDOM } = require("@/lib/themes");
-
-  const AuthView = lazy(() => import("@/components/mq/AuthView"));
-  const MainView = lazy(() => import("@/components/mq/MainView"));
-  const SearchView = lazy(() => import("@/components/mq/SearchView"));
-  const MessengerView = lazy(() => import("@/components/mq/MessengerView"));
-  const SettingsView = lazy(() => import("@/components/mq/SettingsView"));
-  const ProfileView = lazy(() => import("@/components/mq/ProfileView"));
-  const PlaylistView = lazy(() => import("@/components/mq/PlaylistView"));
-  const PublicPlaylistsView = lazy(() => import("@/components/mq/PublicPlaylistsView"));
-  const HistoryView = lazy(() => import("@/components/mq/HistoryView"));
-  const StoriesView = lazy(() => import("@/components/mq/StoriesView"));
-  const PlayerBar = lazy(() => import("@/components/mq/PlayerBar"));
-  const FullTrackView = lazy(() => import("@/components/mq/FullTrackView"));
-  const PiPPlayer = lazy(() => import("@/components/mq/PiPPlayer"));
-  const NavBar = lazy(() => import("@/components/mq/NavBar"));
-  const MobileNav = lazy(() => import("@/components/mq/MobileNav"));
+  const { motion, AnimatePresence } = _framer;
+  const useAppStore = _useAppStore;
+  const themes = _themes;
+  const applyThemeToDOM = _applyThemeToDOM;
 
   const {
     currentView, currentTheme, customAccent, fontSize, animationsEnabled,
@@ -137,12 +143,9 @@ function AppShell() {
   );
 }
 
-// Main page component - minimal SSR, full client
 export default function PlayPage() {
   const isClient = useIsClient();
 
-  // SSR: render minimal splash (no heavy deps)
-  // Client: render full app
   if (!isClient) {
     return (
       <div
