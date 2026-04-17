@@ -1,53 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getSoundCloudClientId } from "@/lib/soundcloud";
 
 /**
  * Resolve SoundCloud stream URL for a track.
- * Returns the direct MP3/ HLS URL that can be played by HTML5 Audio.
+ * Returns the direct MP3/HLS URL that can be played by HTML5 Audio.
  */
 
-let cachedClientId: string | null = null;
-let clientIdExpiry = 0;
-
-async function getClientId(): Promise<string | null> {
-  if (cachedClientId && Date.now() < clientIdExpiry) return cachedClientId;
-
-  try {
-    const res = await fetch("https://soundcloud.com", {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        Accept: "text/html",
-      },
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!res.ok) return cachedClientId;
-
-    const html = await res.text();
-    const jsUrls = html.match(/https:\/\/a-v2\.sndcdn\.com\/assets\/[a-z0-9_-]+\.js/g);
-    if (!jsUrls) return cachedClientId;
-
-    for (const url of jsUrls.slice(0, 10)) {
-      try {
-        const jsRes = await fetch(url, { signal: AbortSignal.timeout(5000) });
-        if (!jsRes.ok) continue;
-        const jsText = await jsRes.text();
-        const match = jsText.match(/client_id["'\s:=]+([a-zA-Z0-9]{20,})/);
-        if (match) {
-          cachedClientId = match[1];
-          clientIdExpiry = Date.now() + 30 * 60 * 1000;
-          return cachedClientId;
-        }
-      } catch {
-        continue;
-      }
-    }
-  } catch {
-    // ignore
-  }
-
-  return cachedClientId;
-}
-
-// Cache resolved stream URLs (they expire quickly, cache 5 min)
+// Cache resolved stream URLs (they expire quickly, cache 3 min)
 const streamCache = new Map<string, { url: string; expiry: number }>();
 
 export async function GET(request: NextRequest) {
@@ -65,7 +24,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const clientId = await getClientId();
+    const clientId = await getSoundCloudClientId();
     if (!clientId) {
       return NextResponse.json({ url: null, error: "no_client_id" });
     }
@@ -111,7 +70,7 @@ export async function GET(request: NextRequest) {
       if (redirectData.url) {
         streamCache.set(trackId, {
           url: redirectData.url,
-          expiry: Date.now() + 5 * 60 * 1000,
+          expiry: Date.now() + 3 * 60 * 1000,
         });
         return NextResponse.json({
           url: redirectData.url,
