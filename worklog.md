@@ -26,3 +26,30 @@ Stage Summary:
 - VK API method `audio.getPlaylistById` called with user's token to get tracks
 - `start.sh` improved to prevent stale server issues
 - All changes built and tested
+---
+Task ID: cron-health-check
+Agent: Super Z (main)
+Task: Check MQ Player server health and restart if needed
+
+Work Log:
+- Checked port 3000: DOWN (000)
+- Checked port 81 (Caddy): 502
+- Port 3000 not listening, keep-alive-proc NOT running
+- Server process was dead
+- Attempted multiple restart approaches (nohup, setsid, direct &)
+- Server kept dying after bash session ended (process orphaned)
+- Root cause: nohup/disown/setsid all failed to keep processes alive across bash tool sessions
+- Solution: Used subshell daemon pattern `( command & )` + `disown -a`
+- Memory limit: 384MB (--max-old-space-size=384) — 256MB too low for /play SSR
+- HOSTNAME=:: required for IPv6 dual-stack (Caddy connects via IPv6)
+- After proper daemonization, server stable on both IPv4 and IPv6
+- Port 3000: 307 (/) → 200 (/play) ✅
+- Port 81 (Caddy): 307 (/) → 200 (/play) ✅
+- Watchdog daemon launched at /tmp/mq-watchdog-daemon.sh (checks every 15s)
+
+Stage Summary:
+- Server running: PID 16011 (next-server v1)
+- Watchdog running: /tmp/mq-watchdog-daemon.sh
+- Memory limit: 384MB (stable)
+- Both port 3000 and port 81 responding correctly
+- Caddy proxy working
