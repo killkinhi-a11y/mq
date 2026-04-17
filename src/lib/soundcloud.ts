@@ -20,35 +20,14 @@ let validatedId: string | null = null;
 
 /**
  * Get a working client_id.
- * On first call, tries each ID against a test search.
- * Returns immediately if already validated.
+ * Returns immediately — NO external fetch (was causing OOM in standalone).
+ * If the ID is bad, the actual API call will 401 → invalidateClientId()
+ * rotates to the next one on the next request.
  */
 export async function getSoundCloudClientId(): Promise<string | null> {
   if (validatedId) return validatedId;
-
-  for (let i = 0; i < CLIENT_IDS.length; i++) {
-    const id = CLIENT_IDS[(activeIndex + i) % CLIENT_IDS.length];
-    try {
-      const r = await fetch(
-        `https://api-v2.soundcloud.com/search/tracks?q=a&client_id=${id}&limit=1`,
-        { signal: AbortSignal.timeout(5000) }
-      );
-      if (r.ok) {
-        const d = await r.json();
-        if (d.collection?.length >= 0) {
-          validatedId = id;
-          activeIndex = (activeIndex + i) % CLIENT_IDS.length;
-          return id;
-        }
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  // All failed — return first as last resort
-  validatedId = CLIENT_IDS[0];
-  return CLIENT_IDS[0];
+  validatedId = CLIENT_IDS[activeIndex];
+  return validatedId;
 }
 
 /**
