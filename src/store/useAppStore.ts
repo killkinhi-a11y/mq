@@ -279,14 +279,6 @@ const initialState = {
   selectedPlaylistId: null as string | null,
 
   // Public playlists
-  publicPlaylists: [] as PublicPlaylist[],
-  recommendedPlaylists: [] as PublicPlaylist[],
-  publicPlaylistsLoading: boolean,
-  publicPlaylistsPage: number,
-  publicPlaylistsTotal: number,
-  publicPlaylistsSearch: string,
-  publicPlaylistsSort: string,
-  recommendedPlaylistsLoading: boolean,
   liquidGlassMobile: false as boolean,
   history: [] as HistoryEntry[],
   publicPlaylists: [] as PublicPlaylist[],
