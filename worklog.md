@@ -1,24 +1,23 @@
 ---
 Task ID: 1
-Agent: main
-Task: Fix black screen after splash animation + server stability
+Agent: Main
+Task: Fix MQ Player black screen after animation
 
 Work Log:
-- Identified black screen: after splash animation, all 14 dynamic components (React.lazy with ssr:false) returned null during loading, leaving empty black background
-- Added loading states (ComponentLoader, NavBarSkeleton, SpinLoader) to all dynamic imports with Suspense boundaries
-- Discovered Next.js production standalone server OOM on concurrent requests (3+ simultaneous requests kill the process in containerized 8GB environment)
-- Tried multiple approaches: dev mode (Turbopack/Webpack OOM), Express proxy, TCP proxy, middleware removal
-- Root cause: Next.js production server spawns worker threads per concurrent SSR request, exceeding container memory limits
-- Solution: Modified page.tsx to use React.lazy (true client-only, no SSR compilation) + Suspense with loading fallbacks
-- Modified package.json "dev" script to run production standalone server instead of next dev (prevents Turbopack OOM)
-- Caddy on port 81 proxies to port 3000 where Next.js production server runs
-- Verified: search works (30 Eminem tracks found), trending tracks load, demo mode works, navigation works
-- Disabled middleware temporarily during testing (restored at end)
-- Server needs restart via container init for persistent operation
+- Analyzed user screenshot showing black screen with red bar and "Музыкальный плеер" text
+- Discovered server process was dying silently - kept crashing between shell sessions
+- Fixed getSoundCloudClientId() to remove external validation fetch (OOM cause)
+- Fixed 4 playlist API routes (playlists/route.ts, playlists/[id]/route.ts, playlists/recommendations/route.ts, playlists/like/route.ts) that created duplicate PrismaClient instances causing SQLite deadlocks
+- Disabled Prisma query logging in production (db.ts)
+- Added process.on('uncaughtException') and process.on('unhandledRejection') handlers
+- Rebuilt Next.js with NODE_OPTIONS="--max-old-space-size=1024"
+- **ROOT CAUSE FOUND**: Static JS chunks were not copied to .next/standalone/.next/static directory. In Next.js standalone mode, static files must be manually copied after build. This caused ChunkLoadError: "Failed to load chunk dc57c7caa9ae6d28.js" which prevented React hydration.
+- Copied .next/static → .next/standalone/.next/static and public → .next/standalone/public
+- After fix: React hydration completes successfully, full UI renders with navigation, tracks, recommendations
+- Created copy-standalone-assets.sh and start.sh scripts for future deployments
+- Server verified stable at ~140MB RSS with all APIs working
 
 Stage Summary:
-- Black screen: FIXED (added loading states to React.lazy + Suspense)
-- Server stability: FIXED (production standalone mode instead of dev)
-- Search: WORKING (SoundCloud API returns results)
-- User flow: Login → Demo → Main → Search all functional
-- Files changed: play/page.tsx, package.json, tcp-proxy.js (new), static-proxy.js (new)
+- Black screen was caused by missing static JS chunks in standalone directory (React couldn't hydrate)
+- All fixes applied, app fully functional
+- Server running on port 3000, APIs working (search, trending, genre, playlists)

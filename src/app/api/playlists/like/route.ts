@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { db } from "@/lib/db";
 
 // POST /api/playlists/like — toggle like on a playlist
 export async function POST(req: NextRequest) {
@@ -14,23 +12,23 @@ export async function POST(req: NextRequest) {
     }
 
     // Verify playlist exists
-    const playlist = await prisma.playlist.findUnique({ where: { id: playlistId } });
+    const playlist = await db.playlist.findUnique({ where: { id: playlistId } });
     if (!playlist) {
       return NextResponse.json({ error: "Playlist not found" }, { status: 404 });
     }
 
     // Check if already liked
-    const existing = await prisma.playlistLike.findUnique({
+    const existing = await db.playlistLike.findUnique({
       where: { playlistId_userId: { playlistId, userId } },
     });
 
     if (existing) {
       // Unlike
-      await prisma.playlistLike.delete({ where: { id: existing.id } });
+      await db.playlistLike.delete({ where: { id: existing.id } });
       return NextResponse.json({ liked: false });
     } else {
       // Like
-      await prisma.playlistLike.create({
+      await db.playlistLike.create({
         data: { playlistId, userId },
       });
       return NextResponse.json({ liked: true });

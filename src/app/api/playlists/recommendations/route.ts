@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { db } from "@/lib/db";
 
 // GET /api/playlists/recommendations?userId=&likedTags=pop,rock&dislikedTags=jazz&limit=10
 //
@@ -26,7 +24,7 @@ export async function GET(req: NextRequest) {
       where.userId = { not: userId };
     }
 
-    let playlists = await prisma.playlist.findMany({
+    let playlists = await db.playlist.findMany({
       where,
       include: {
         user: { select: { username: true } },
@@ -38,7 +36,7 @@ export async function GET(req: NextRequest) {
     // Get user's liked playlist IDs to exclude
     let likedPlaylistIds: Set<string> = new Set();
     if (userId) {
-      const userLikes = await prisma.playlistLike.findMany({
+      const userLikes = await db.playlistLike.findMany({
         where: { userId },
         select: { playlistId: true },
       });

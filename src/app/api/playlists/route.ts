@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { db } from "@/lib/db";
 
 // GET /api/playlists?userId=&search=&tags=&sort=&page=&limit=
 export async function GET(req: NextRequest) {
@@ -19,7 +17,7 @@ export async function GET(req: NextRequest) {
 
     if (myOnly && userId) {
       // Get user's own playlists
-      const playlists = await prisma.playlist.findMany({
+      const playlists = await db.playlist.findMany({
         where: { userId },
         orderBy: { updatedAt: "desc" },
         skip,
@@ -30,7 +28,7 @@ export async function GET(req: NextRequest) {
         },
       });
 
-      const total = await prisma.playlist.count({ where: { userId } });
+      const total = await db.playlist.count({ where: { userId } });
 
       return NextResponse.json({
         playlists: playlists.map(formatPlaylist),
@@ -70,7 +68,7 @@ export async function GET(req: NextRequest) {
         break;
     }
 
-    let playlists = await prisma.playlist.findMany({
+    let playlists = await db.playlist.findMany({
       where,
       orderBy: sort === "popular" ? undefined : orderBy,
       skip,
@@ -92,12 +90,12 @@ export async function GET(req: NextRequest) {
 
     playlists = playlists.slice(0, limit);
 
-    const total = await prisma.playlist.count({ where });
+    const total = await db.playlist.count({ where });
 
     // Get current user's likes if authenticated
     let likedIds: string[] = [];
     if (userId) {
-      const userLikes = await prisma.playlistLike.findMany({
+      const userLikes = await db.playlistLike.findMany({
         where: { userId },
         select: { playlistId: true },
       });
@@ -129,7 +127,7 @@ export async function POST(req: NextRequest) {
     const tracksJson = JSON.stringify(tracks || []);
     const tagsStr = Array.isArray(tags) ? tags.join(",") : (tags || "");
 
-    const playlist = await prisma.playlist.create({
+    const playlist = await db.playlist.create({
       data: {
         userId,
         name: name.trim(),
@@ -163,7 +161,7 @@ export async function PUT(req: NextRequest) {
     }
 
     // Verify ownership
-    const existing = await prisma.playlist.findUnique({ where: { id } });
+    const existing = await db.playlist.findUnique({ where: { id } });
     if (!existing || existing.userId !== userId) {
       return NextResponse.json({ error: "Playlist not found or unauthorized" }, { status: 403 });
     }
@@ -178,7 +176,7 @@ export async function PUT(req: NextRequest) {
     }
     if (tracks !== undefined) updateData.tracksJson = JSON.stringify(tracks);
 
-    const playlist = await prisma.playlist.update({
+    const playlist = await db.playlist.update({
       where: { id },
       data: updateData,
       include: {
@@ -205,12 +203,12 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "playlistId and userId required" }, { status: 400 });
     }
 
-    const existing = await prisma.playlist.findUnique({ where: { id: playlistId } });
+    const existing = await db.playlist.findUnique({ where: { id: playlistId } });
     if (!existing || existing.userId !== userId) {
       return NextResponse.json({ error: "Not found or unauthorized" }, { status: 403 });
     }
 
-    await prisma.playlist.delete({ where: { id: playlistId } });
+    await db.playlist.delete({ where: { id: playlistId } });
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("DELETE /api/playlists error:", error);

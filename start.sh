@@ -1,7 +1,14 @@
 #!/bin/bash
-while true; do
-  cd /home/z/my-project/.next/standalone
-  NODE_OPTIONS="--max-old-space-size=4096" node server.js -H 0.0.0.0 -p 3000 >> /tmp/mq-server.log 2>&1
-  echo "[$(date)] Server died, restarting in 2s..." >> /tmp/mq-server.log
-  sleep 2
-done
+cd /home/z/my-project
+
+# Ensure static files are in standalone
+if [ ! -d ".next/standalone/.next/static" ] || [ "$(ls .next/standalone/.next/static/chunks/ 2>/dev/null | wc -l)" -lt 10 ]; then
+  echo "Copying static files..."
+  mkdir -p .next/standalone/.next
+  cp -r .next/static .next/standalone/.next/static
+  cp -r public .next/standalone/public 2>/dev/null
+fi
+
+echo "Starting MQ Player..."
+exec HOSTNAME=:: NODE_ENV=production NODE_OPTIONS="--max-old-space-size=2048" PORT=3000 \
+  node .next/standalone/server.js

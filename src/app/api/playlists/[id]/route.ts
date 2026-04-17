@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { db } from "@/lib/db";
 
 // GET /api/playlists/[id]?userId= (userId optional for like status)
 export async function GET(
@@ -12,7 +10,7 @@ export async function GET(
     const { id } = await params;
     const userId = new URL(req.url).searchParams.get("userId");
 
-    const playlist = await prisma.playlist.findUnique({
+    const playlist = await db.playlist.findUnique({
       where: { id },
       include: {
         user: { select: { username: true } },
@@ -32,14 +30,14 @@ export async function GET(
     }
 
     // Increment play count
-    await prisma.playlist.update({
+    await db.playlist.update({
       where: { id },
       data: { playCount: { increment: 1 } },
     });
 
     let isLiked = false;
     if (userId) {
-      const like = await prisma.playlistLike.findUnique({
+      const like = await db.playlistLike.findUnique({
         where: { playlistId_userId: { playlistId: id, userId } },
       });
       isLiked = !!like;
