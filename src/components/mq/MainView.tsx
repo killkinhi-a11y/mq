@@ -115,7 +115,7 @@ export default function MainView() {
     return () => { cancelled = true; };
   }, []);
 
-  // Fetch smart recommendations based on taste
+  // Fetch smart recommendations based on taste with debounce
   const loadRecommendations = useCallback(async () => {
     setIsRecLoading(true);
     try {
@@ -135,22 +135,34 @@ export default function MainView() {
       if (dislikedGenres) params.set("dislikedGenres", dislikedGenres);
 
       const res = await fetch(`/api/music/recommendations?${params}`);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
       const data = await res.json();
       // Filter out disliked tracks on client side too
       const dislikedSet = new Set(disliked);
       const filtered = (data.tracks || []).filter((t: Track) => !dislikedSet.has(t.id));
       setRecommendations(filtered);
-    } catch {
+      
+      if (filtered.length === 0) {
+        console.warn('[Recommendations] No tracks returned after filtering');
+      }
+    } catch (error) {
+      console.error('[Recommendations] Failed to load:', error instanceof Error ? error.message : error);
       setRecommendations([]);
     } finally {
       setIsRecLoading(false);
     }
   }, [tasteProfile]);
 
+  // Debounced recommendation loading - wait for taste profile to stabilize
   useEffect(() => {
-    loadRecommendations();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const debounceTimer = setTimeout(() => {
+      loadRecommendations();
+    }, 300); // 300ms debounce
+    
+    return () => clearTimeout(debounceTimer);
+  }, [loadRecommendations]);
 
   const handlePlayAll = useCallback(() => {
     if (trendingTracks.length > 0) playTrack(trendingTracks[0], trendingTracks);

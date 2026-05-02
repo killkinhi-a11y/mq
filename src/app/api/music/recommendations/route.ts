@@ -5,26 +5,96 @@ import { searchSCTracks } from "@/lib/soundcloud";
  * Smart Recommendations API — generates recommendations based on user taste profile.
  * Accepts: genres[], artists[], excludeIds[]
  * Falls back to random discovery if no taste data.
+ * 
+ * IMPROVEMENTS:
+ * - Dynamic TTL based on content freshness
+ * - Fisher-Yates shuffle for better randomness
+ * - Comprehensive error logging
+ * - Graceful degradation with fallback
+ * - Diversity scoring to avoid duplicates
  */
 
-const cache = new Map<string, { data: unknown; expiry: number }>();
-const CACHE_TTL = 8 * 60 * 1000;
+const cache = new Map<string, { data: unknown; expiry: number; timestamp: number }>();
+const BASE_CACHE_TTL = 8 * 60 * 1000; // 8 minutes base
+const MIN_CACHE_SIZE = 20;
+const MAX_CACHE_SIZE = 150;
+
+// Logger utility
+const logger = {
+  info: (message: string, data?: unknown) => {
+    console.log(`[Recommendations] ${message}`, data ? JSON.stringify(data) : "");
+  },
+  warn: (message: string, data?: unknown) => {
+    console.warn(`[Recommendations] ${message}`, data ? JSON.stringify(data) : "");
+  },
+  error: (message: string, error?: unknown) => {
+    console.error(`[Recommendations] ${message}`, error instanceof Error ? error.message : error);
+  },
+};
 
 function getFromCache(key: string): unknown | null {
   const entry = cache.get(key);
-  if (entry && entry.expiry > Date.now()) return entry.data;
-  cache.delete(key);
+  if (entry && entry.expiry > Date.now()) {
+    return entry.data;
+  }
+  if (entry) {
+    cache.delete(key);
+  }
   return null;
 }
 
-function setCache(key: string, data: unknown): void {
-  if (cache.size > 100) {
-    const now = Date.now();
-    for (const [k, v] of cache) {
-      if (v.expiry <= now) cache.delete(k);
+function setCache(key: string, data: unknown, dynamicTTL?: number): void {
+  // Cache eviction: remove expired entries first
+  const now = Date.now();
+  for (const [k, v] of cache) {
+    if (v.expiry <= now) cache.delete(k);
+  }
+  
+  // If cache is too large, remove oldest entries
+  if (cache.size >= MAX_CACHE_SIZE) {
+    const entries = Array.from(cache.entries()).sort((a, b) => a[1].timestamp - b[1].timestamp);
+    const toRemove = Math.max(MIN_CACHE_SIZE, Math.floor(MAX_CACHE_SIZE * 0.3));
+    for (let i = 0; i < toRemove && i < entries.length; i++) {
+      cache.delete(entries[i][0]);
     }
   }
-  cache.set(key, { data, expiry: Date.now() + CACHE_TTL });
+  
+  const ttl = dynamicTTL ?? BASE_CACHE_TTL;
+  cache.set(key, { data, expiry: now + ttl, timestamp: now });
+}
+
+// Fisher-Yates shuffle for better randomness
+function shuffleArray<T>(array: T[]): T[] {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+// Calculate diversity score to avoid similar tracks
+function calculateDiversityScore(
+  track: Awaited<ReturnType<typeof searchSCTracks>>[0],
+  existingTracks: Awaited<ReturnType<typeof searchSCTracks>>
+): number {
+  let score = 1;
+  
+  // Penalize same artist
+  const sameArtistCount = existingTracks.filter(t => t.artist === track.artist).length;
+  score -= sameArtistCount * 0.3;
+  
+  // Penalize same genre
+  const sameGenreCount = existingTracks.filter(t => t.genre === track.genre).length;
+  score -= sameGenreCount * 0.2;
+  
+  // Bonus for having artwork
+  if (track.cover) score += 0.1;
+  
+  // Bonus for reasonable duration
+  if (track.duration && track.duration >= 120 && track.duration <= 400) score += 0.1;
+  
+  return Math.max(0.1, score);
 }
 
 export async function GET(request: NextRequest) {
@@ -91,9 +161,19 @@ export async function GET(request: NextRequest) {
 
     queries = [...new Set(queries)].slice(0, 4);
 
+    logger.info(`Fetching recommendations`, { queries, genresCount: genres.length, artistsCount: artists.length });
+
     const results = await Promise.allSettled(
       queries.map((q) => searchSCTracks(q, 12))
     );
+
+    // Log any failed queries
+    const failedQueries = results
+      .map((r, i) => r.status === "rejected" ? queries[i] : null)
+      .filter(Boolean);
+    if (failedQueries.length > 0) {
+      logger.warn(`Some queries failed`, { failed: failedQueries });
+    }
 
     const allTracks: Awaited<ReturnType<typeof searchSCTracks>> = [];
     const seenIds = new Set<number>();
@@ -118,10 +198,56 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const responseData = { tracks: allTracks.sort(() => Math.random() - 0.5).slice(0, 15) };
-    setCache(cacheKey, responseData);
+    logger.info(`Collected ${allTracks.length} tracks before diversity filtering`);
+
+    // Apply diversity-aware selection
+    let selectedTracks: typeof allTracks = [];
+    const candidatePool = shuffleArray(allTracks);
+    
+    for (const track of candidatePool) {
+      if (selectedTracks.length >= 15) break;
+      
+      const diversityScore = calculateDiversityScore(track, selectedTracks);
+      
+      // Only add if diversity score is acceptable
+      if (diversityScore >= 0.5 || selectedTracks.length < 5) {
+        selectedTracks.push(track);
+      }
+    }
+
+    // If we don't have enough diverse tracks, fill with remaining
+    if (selectedTracks.length < 15) {
+      const remaining = candidatePool.filter(t => !selectedTracks.includes(t));
+      selectedTracks = [...selectedTracks, ...remaining.slice(0, 15 - selectedTracks.length)];
+    }
+
+    // Calculate dynamic TTL based on content
+    // More tracks = longer cache, fewer tracks = shorter cache (more likely to change)
+    const dynamicTTL = selectedTracks.length >= 10 
+      ? BASE_CACHE_TTL * 1.5  // 12 minutes for good results
+      : BASE_CACHE_TTL * 0.7; // ~5.5 minutes for sparse results
+
+    const responseData = { tracks: selectedTracks };
+    setCache(cacheKey, responseData, dynamicTTL);
+    
+    logger.info(`Returning ${selectedTracks.length} recommendations`, { 
+      cacheTTL: Math.round(dynamicTTL / 60000), 
+      diversityApplied: true 
+    });
+    
     return NextResponse.json(responseData);
-  } catch {
+  } catch (error) {
+    logger.error(`Failed to fetch recommendations`, error);
+    
+    // Graceful degradation: try to return cached fallback or empty array
+    const fallbackKey = `rec:smart:random::`;
+    const cachedFallback = getFromCache(fallbackKey);
+    if (cachedFallback) {
+      logger.info(`Returning cached fallback due to error`);
+      return NextResponse.json(cachedFallback, { status: 200 });
+    }
+    
+    // Return empty array with 200 status (not 500) to avoid breaking UI
     return NextResponse.json({ tracks: [] }, { status: 200 });
   }
 }

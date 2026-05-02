@@ -125,14 +125,49 @@ export async function getTrendingTracks(): Promise<Track[]> {
   }
 }
 
-export async function getRecommendations(genre?: string): Promise<Track[]> {
+export async function getRecommendations(genre?: string, options?: { 
+  genres?: string[]; 
+  artists?: string[]; 
+  excludeIds?: string[];
+  dislikedIds?: string[];
+  dislikedArtists?: string[];
+  dislikedGenres?: string[];
+}): Promise<Track[]> {
   try {
-    const params = genre ? `?genre=${encodeURIComponent(genre)}` : "?genre=random";
-    const res = await fetch(`/api/music/recommendations${params}`);
-    if (!res.ok) return [];
+    const params = new URLSearchParams();
+    
+    if (options?.genres?.length) {
+      params.set('genres', options.genres.join(','));
+    } else if (options?.artists?.length) {
+      params.set('artists', options.artists.join(','));
+    } else if (genre) {
+      params.set('genre', encodeURIComponent(genre));
+    } else {
+      params.set('genre', 'random');
+    }
+    
+    if (options?.excludeIds?.length) {
+      params.set('excludeIds', options.excludeIds.join(','));
+    }
+    if (options?.dislikedIds?.length) {
+      params.set('dislikedIds', options.dislikedIds.join(','));
+    }
+    if (options?.dislikedArtists?.length) {
+      params.set('dislikedArtists', options.dislikedArtists.join(','));
+    }
+    if (options?.dislikedGenres?.length) {
+      params.set('dislikedGenres', options.dislikedGenres.join(','));
+    }
+    
+    const res = await fetch(`/api/music/recommendations?${params}`);
+    if (!res.ok) {
+      console.error(`[getRecommendations] HTTP ${res.status}`);
+      return [];
+    }
     const data = await res.json();
     return data.tracks || [];
-  } catch {
+  } catch (error) {
+    console.error('[getRecommendations] Error:', error instanceof Error ? error.message : error);
     return [];
   }
 }

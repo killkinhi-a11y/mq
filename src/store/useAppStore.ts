@@ -704,16 +704,19 @@ export const useAppStore = create<AppState>()(
       },
 
       fetchPlaylistRecommendations: async (likedTags = [], likedArtists = []) => {
-        const { userId, likedTracksData, history } = get();
+        const { userId, likedTracksData, history, dislikedTrackIds } = get();
         set({ recommendedPlaylistsLoading: true });
 
         // Build taste profile from store if not provided
         let tags = likedTags;
         let artists = likedArtists;
+        let dislikedTags: string[] = [];
+        
         if (tags.length === 0 && artists.length === 0) {
           const allTracks = [...likedTracksData, ...history.slice(0, 50).map((h) => h.track)];
           const genreCount: Record<string, number> = {};
           const artistCount: Record<string, number> = {};
+          
           for (const t of allTracks) {
             if (t.genre) genreCount[t.genre] = (genreCount[t.genre] || 0) + 2;
             if (t.artist) artistCount[t.artist] = (artistCount[t.artist] || 0) + 1;
@@ -721,20 +724,36 @@ export const useAppStore = create<AppState>()(
           tags = Object.entries(genreCount).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([g]) => g);
           artists = Object.entries(artistCount).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([a]) => a);
         }
+        
+        // Extract disliked genres from disliked tracks
+        if (dislikedTrackIds.length > 0) {
+          const allKnownTracks = [...likedTracksData, ...history.slice(0, 100).map(h => h.track)];
+          const dislikedGenresSet = new Set<string>();
+          for (const track of allKnownTracks) {
+            if (dislikedTrackIds.includes(track.id) && track.genre) {
+              dislikedGenresSet.add(track.genre);
+            }
+          }
+          dislikedTags = [...dislikedGenresSet];
+        }
 
         try {
           const sp = new URLSearchParams({ userId: userId || '', limit: '10' });
           if (tags.length > 0) sp.set('likedTags', tags.join(','));
           if (artists.length > 0) sp.set('likedArtists', artists.join(','));
+          if (dislikedTags.length > 0) sp.set('dislikedTags', dislikedTags.join(','));
+          
           const res = await fetch(`/api/playlists/recommendations?${sp}`);
           if (res.ok) {
             const data = await res.json();
             set({ recommendedPlaylists: data.playlists || [], recommendedPlaylistsLoading: false });
           } else {
-            set({ recommendedPlaylistsLoading: false });
+            console.error('[fetchPlaylistRecommendations] HTTP error:', res.status);
+            set({ recommendedPlaylists: [], recommendedPlaylistsLoading: false });
           }
-        } catch {
-          set({ recommendedPlaylistsLoading: false });
+        } catch (error) {
+          console.error('[fetchPlaylistRecommendations] Error:', error instanceof Error ? error.message : error);
+          set({ recommendedPlaylists: [], recommendedPlaylistsLoading: false });
         }
       },
 
